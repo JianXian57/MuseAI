@@ -1,0 +1,16 @@
+# ============================================================
+# MuseAI - Private and Runtime Data
+# ============================================================
+
+# User data
+
+/config/user.yaml
+/data/**
+!/data/.gitkeep
+!/data/**/.gitkeep
+
+# Secretary
+/.env
+
+# Cache
+__pycache__
