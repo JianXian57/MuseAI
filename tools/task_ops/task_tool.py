@@ -9,7 +9,7 @@ Recommended location:
 
 Responsibilities
 ----------------
-- Expose public Daily Task operations.
+- Expose public Daily and Long Task operations.
 - Convert service results/errors into the unified MuseAI Tool protocol.
 
 This module does not:
@@ -48,6 +48,28 @@ from task_ops.daily_service import (
     set_daily_status as service_set_daily_status,
     update_daily as service_update_daily,
 )
+from task_ops.long_service import (
+    InvalidLongCollectionError,
+    InvalidLongDeadlineError,
+    InvalidLongDocumentError,
+    InvalidLongStageError,
+    InvalidLongStateError,
+    InvalidTimelineEventError,
+    LongCollectionConflictError,
+    LongFileNotFoundError,
+    LongTaskError,
+    add_long as service_add_long,
+    archive_long as service_archive_long,
+    ensure_long as service_ensure_long,
+    read_long as service_read_long,
+    record_long as service_record_long,
+    set_long_active as service_set_long_active,
+    set_long_deadline as service_set_long_deadline,
+    set_long_stage as service_set_long_stage,
+    set_long_status as service_set_long_status,
+    unarchive_long as service_unarchive_long,
+    update_long as service_update_long,
+)
 from task_ops.task_service import (
     DuplicateTaskIdError,
     InvalidTaskDocumentError,
@@ -85,6 +107,46 @@ def _service_failure(
             InvalidDailySourceError,
             "INVALID_DAILY_SOURCE",
             "The requested Daily Task source is invalid.",
+        ),
+        (
+            LongFileNotFoundError,
+            "LONG_FILE_NOT_FOUND",
+            "A required Long Task collection file does not exist.",
+        ),
+        (
+            InvalidLongCollectionError,
+            "INVALID_LONG_COLLECTION",
+            "The requested Long Task collection is invalid.",
+        ),
+        (
+            InvalidLongDeadlineError,
+            "INVALID_LONG_DEADLINE",
+            "The requested Long Task deadline is invalid.",
+        ),
+        (
+            InvalidLongStageError,
+            "INVALID_LONG_STAGE",
+            "The requested Long Task stage is invalid.",
+        ),
+        (
+            InvalidTimelineEventError,
+            "INVALID_TIMELINE_EVENT",
+            "The requested Long Task timeline event is invalid.",
+        ),
+        (
+            InvalidLongStateError,
+            "INVALID_LONG_STATE",
+            "The requested Long Task state transition is invalid.",
+        ),
+        (
+            LongCollectionConflictError,
+            "LONG_COLLECTION_CONFLICT",
+            "The Long Task exists in conflicting active and archived states.",
+        ),
+        (
+            InvalidLongDocumentError,
+            "INVALID_LONG_DOCUMENT",
+            "The Long Task document is invalid.",
         ),
         (
             UnsupportedSchemaVersionError,
@@ -130,6 +192,11 @@ def _service_failure(
             DailyTaskError,
             "DAILY_TASK_ERROR",
             "The Daily Task service failed.",
+        ),
+        (
+            LongTaskError,
+            "LONG_TASK_ERROR",
+            "The Long Task service failed.",
         ),
         (
             TaskServiceError,
@@ -325,3 +392,190 @@ def daily_remove(
         date=date,
         daily_dir=daily_dir,
     )
+
+
+def long_ensure(
+    *,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.ensure",
+        service_ensure_long,
+        long_dir=long_dir,
+    )
+
+
+def long_read(
+    collection: str = "active",
+    *,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.read",
+        service_read_long,
+        collection=collection,
+        long_dir=long_dir,
+    )
+
+
+def long_add(
+    *,
+    title: str,
+    description: str = "",
+    category: str = "未分类",
+    active: bool = True,
+    stage: str | None = None,
+    deadline: str | None = None,
+    meta: dict[str, Any] | None = None,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.add",
+        service_add_long,
+        title=title,
+        description=description,
+        category=category,
+        active=active,
+        stage=stage,
+        deadline=deadline,
+        meta=meta,
+        long_dir=long_dir,
+    )
+
+
+def long_update(
+    *,
+    task_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    category: str | None = None,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.update",
+        service_update_long,
+        task_id=task_id,
+        title=title,
+        description=description,
+        category=category,
+        long_dir=long_dir,
+    )
+
+
+def long_status(
+    *,
+    task_id: str,
+    status: str,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.status",
+        service_set_long_status,
+        task_id=task_id,
+        status=status,
+        long_dir=long_dir,
+    )
+
+
+def long_activate(
+    *,
+    task_id: str,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.activate",
+        service_set_long_active,
+        task_id=task_id,
+        active=True,
+        long_dir=long_dir,
+    )
+
+
+def long_deactivate(
+    *,
+    task_id: str,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.deactivate",
+        service_set_long_active,
+        task_id=task_id,
+        active=False,
+        long_dir=long_dir,
+    )
+
+
+def long_stage(
+    *,
+    task_id: str,
+    stage: str | None,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.stage",
+        service_set_long_stage,
+        task_id=task_id,
+        stage=stage,
+        long_dir=long_dir,
+    )
+
+
+def long_deadline(
+    *,
+    task_id: str,
+    deadline: str | None,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.deadline",
+        service_set_long_deadline,
+        task_id=task_id,
+        deadline=deadline,
+        long_dir=long_dir,
+    )
+
+
+def long_record(
+    *,
+    task_id: str,
+    text: str,
+    entry_type: str = "progress",
+    meta: dict[str, Any] | None = None,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.record",
+        service_record_long,
+        task_id=task_id,
+        text=text,
+        entry_type=entry_type,
+        meta=meta,
+        long_dir=long_dir,
+    )
+
+
+def long_archive(
+    *,
+    task_id: str,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.archive",
+        service_archive_long,
+        task_id=task_id,
+        long_dir=long_dir,
+    )
+
+
+def long_unarchive(
+    *,
+    task_id: str,
+    long_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.long.unarchive",
+        service_unarchive_long,
+        task_id=task_id,
+        long_dir=long_dir,
+    )
+
