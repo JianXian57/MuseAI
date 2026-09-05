@@ -28,6 +28,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from common.result import failure, success
 from common.time_service import (
     InvalidTimezoneError,
     InvalidUserConfigError,
@@ -37,42 +38,6 @@ from common.time_service import (
     UserConfigReadError,
     get_current_time,
 )
-
-
-def _success(
-    operation: str,
-    data: dict[str, Any] | None = None,
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    """Build a successful MuseAI Tool result."""
-    return {
-        "ok": True,
-        "operation": operation,
-        "data": data or {},
-        "warnings": warnings or [],
-        "error": None,
-    }
-
-
-def _failure(
-    operation: str,
-    code: str,
-    message: str,
-    details: Any = None,
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    """Build a failed MuseAI Tool result."""
-    return {
-        "ok": False,
-        "operation": operation,
-        "data": {},
-        "warnings": warnings or [],
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details,
-        },
-    }
 
 
 def current_time(
@@ -99,7 +64,7 @@ def current_time(
         context = get_current_time(config_path)
 
     except UserConfigNotFoundError as exc:
-        return _failure(
+        return failure(
             operation,
             "USER_CONFIG_NOT_FOUND",
             "MuseAI user configuration file was not found.",
@@ -110,7 +75,7 @@ def current_time(
         )
 
     except TimezoneNotConfiguredError as exc:
-        return _failure(
+        return failure(
             operation,
             "TIMEZONE_NOT_CONFIGURED",
             "The `timezone` field is missing from the MuseAI user configuration.",
@@ -121,7 +86,7 @@ def current_time(
         )
 
     except InvalidTimezoneError as exc:
-        return _failure(
+        return failure(
             operation,
             "INVALID_TIMEZONE",
             "The configured IANA timezone could not be resolved.",
@@ -135,7 +100,7 @@ def current_time(
         )
 
     except UserConfigReadError as exc:
-        return _failure(
+        return failure(
             operation,
             "USER_CONFIG_READ_FAILED",
             "MuseAI could not read the user configuration file.",
@@ -145,7 +110,7 @@ def current_time(
         )
 
     except InvalidUserConfigError as exc:
-        return _failure(
+        return failure(
             operation,
             "INVALID_USER_CONFIG",
             "MuseAI user configuration is invalid.",
@@ -155,7 +120,7 @@ def current_time(
         )
 
     except TimeServiceError as exc:
-        return _failure(
+        return failure(
             operation,
             "TIME_SERVICE_ERROR",
             "MuseAI time service failed.",
@@ -178,7 +143,7 @@ def current_time(
     if context.get("warning"):
         warnings.append(str(context["warning"]))
 
-    return _success(
+    return success(
         operation=operation,
         data=data,
         warnings=warnings,

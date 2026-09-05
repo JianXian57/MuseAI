@@ -3,7 +3,6 @@
 # ============================================================
 
 # User data
-
 /config/user.yaml
 /data/**
 !/data/.gitkeep
@@ -14,3 +13,9 @@
 
 # Cache
 __pycache__
+
+# renew
+/.renew
+
+# local test
+/.test

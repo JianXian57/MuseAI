@@ -29,7 +29,7 @@ This module does not:
 - print output;
 - decide when an operation should be logged.
 
-`tools/muse.py` is responsible for deciding when to call this Tool.
+`muse.py` is responsible for deciding when to call this Tool.
 Other Tools should not write logs directly.
 """
 
@@ -39,6 +39,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from common.result import failure, success
 from common.time_service import get_log_time
 
 
@@ -54,42 +55,6 @@ DEFAULT_LOG_DIR = PROJECT_ROOT / "data" / "logs"
 DELIMITER = "｜"
 MONTH_PATTERN = re.compile(r"^\d{6}$")
 KNOWN_STATUSES = {"START", "SUCCESS", "FAILED", "INFO", "WARNING"}
-
-
-def _success(
-    operation: str,
-    data: dict[str, Any] | None = None,
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    """Build a successful MuseAI Tool result."""
-    return {
-        "ok": True,
-        "operation": operation,
-        "data": data or {},
-        "warnings": warnings or [],
-        "error": None,
-    }
-
-
-def _failure(
-    operation: str,
-    code: str,
-    message: str,
-    details: Any = None,
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    """Build a failed MuseAI Tool result."""
-    return {
-        "ok": False,
-        "operation": operation,
-        "data": {},
-        "warnings": warnings or [],
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details,
-        },
-    }
 
 
 def _normalize_required_field(name: str, value: str) -> str:
@@ -225,7 +190,7 @@ def write_log(
         operation = _normalize_required_field("operation", operation)
         description = _normalize_required_field("description", description)
     except (TypeError, ValueError) as exc:
-        return _failure(
+        return failure(
             tool_operation,
             "INVALID_LOG_FIELD",
             "A required log field is invalid.",
@@ -256,7 +221,7 @@ def write_log(
             handle.flush()
 
     except (OSError, UnicodeError, ValueError) as exc:
-        return _failure(
+        return failure(
             tool_operation,
             "LOG_WRITE_FAILED",
             "MuseAI could not write the log entry.",
@@ -272,7 +237,7 @@ def write_log(
             "TIME_FALLBACK: " + str(time_context["warning"])
         )
 
-    return _success(
+    return success(
         tool_operation,
         {
             "written": True,
@@ -342,7 +307,7 @@ def read_log(
             )
 
     if not isinstance(month, str) or not MONTH_PATTERN.fullmatch(month):
-        return _failure(
+        return failure(
             tool_operation,
             "INVALID_MONTH",
             "`month` must use YYYYMM format.",
@@ -352,7 +317,7 @@ def read_log(
 
     if status is not None:
         if not isinstance(status, str):
-            return _failure(
+            return failure(
                 tool_operation,
                 "INVALID_STATUS",
                 "`status` must be a string.",
@@ -363,7 +328,7 @@ def read_log(
         status = status.strip().upper()
 
         if status not in KNOWN_STATUSES:
-            return _failure(
+            return failure(
                 tool_operation,
                 "INVALID_STATUS",
                 "Unsupported log status.",
@@ -376,7 +341,7 @@ def read_log(
 
     if tail is not None:
         if isinstance(tail, bool) or not isinstance(tail, int) or tail <= 0:
-            return _failure(
+            return failure(
                 tool_operation,
                 "INVALID_TAIL",
                 "`tail` must be a positive integer.",
@@ -387,7 +352,7 @@ def read_log(
     try:
         log_path = _resolve_log_path(month, log_dir)
     except ValueError as exc:
-        return _failure(
+        return failure(
             tool_operation,
             "INVALID_MONTH",
             str(exc),
@@ -398,7 +363,7 @@ def read_log(
     if not log_path.exists():
         warnings.append("LOG_FILE_NOT_FOUND")
 
-        return _success(
+        return success(
             tool_operation,
             {
                 "month": month,
@@ -412,7 +377,7 @@ def read_log(
     try:
         lines = log_path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeError) as exc:
-        return _failure(
+        return failure(
             tool_operation,
             "LOG_READ_FAILED",
             "MuseAI could not read the log file.",
@@ -471,7 +436,7 @@ def read_log(
     if tail is not None:
         entries = entries[-tail:]
 
-    return _success(
+    return success(
         tool_operation,
         {
             "month": month,

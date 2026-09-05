@@ -49,95 +49,12 @@ TOOLS_ROOT = PROJECT_ROOT / "tools"
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
 
-
-def success(
-    operation: str,
-    data: dict[str, Any] | None = None,
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "ok": True,
-        "operation": operation,
-        "data": data or {},
-        "warnings": warnings or [],
-        "error": None,
-    }
-
-
-def failure(
-    operation: str,
-    message: str,
-    *,
-    code: str = "TOOL_ERROR",
-    details: Any = None,
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "ok": False,
-        "operation": operation,
-        "data": {},
-        "warnings": warnings or [],
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details,
-        },
-    }
+from common.result import append_warning, failure, normalize_tool_result
 
 
 def emit(result: dict[str, Any]) -> int:
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("ok") is True else 1
-
-
-def normalize_tool_result(
-    operation: str,
-    result: Any,
-) -> dict[str, Any]:
-    if not isinstance(result, dict):
-        return failure(
-            operation,
-            "Tool returned an unsupported result type.",
-            code="INVALID_TOOL_RESULT",
-            details={"type": type(result).__name__},
-        )
-
-    if "ok" not in result:
-        return success(operation=operation, data=result)
-
-    normalized = {
-        "ok": bool(result.get("ok")),
-        "operation": result.get("operation") or operation,
-        "data": result.get("data") or {},
-        "warnings": list(result.get("warnings") or []),
-        "error": result.get("error"),
-    }
-
-    if normalized["ok"]:
-        normalized["error"] = None
-    elif normalized["error"] is None:
-        normalized["error"] = {
-            "code": "TOOL_ERROR",
-            "message": "Tool reported failure without error details.",
-            "details": None,
-        }
-
-    return normalized
-
-
-def append_warning(
-    result: dict[str, Any],
-    warning: str | None,
-) -> dict[str, Any]:
-    if not warning:
-        return result
-
-    warnings = result.setdefault("warnings", [])
-
-    if warning not in warnings:
-        warnings.append(warning)
-
-    return result
 
 
 def _write_lifecycle_log(
@@ -198,9 +115,9 @@ def run_time_current(_: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         return failure(
             operation,
+            "TOOL_NOT_AVAILABLE",
             "The time Tool is not available.",
-            code="TOOL_NOT_AVAILABLE",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     try:
@@ -208,9 +125,9 @@ def run_time_current(_: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         return failure(
             operation,
+            "TOOL_EXECUTION_FAILED",
             "The time Tool failed unexpectedly.",
-            code="TOOL_EXECUTION_FAILED",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     return normalize_tool_result(operation, result)
@@ -224,9 +141,9 @@ def run_log_write(args: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         return failure(
             operation,
+            "TOOL_NOT_AVAILABLE",
             "The log Tool is not available.",
-            code="TOOL_NOT_AVAILABLE",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     try:
@@ -238,9 +155,9 @@ def run_log_write(args: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         return failure(
             operation,
+            "TOOL_EXECUTION_FAILED",
             "The log Tool failed unexpectedly.",
-            code="TOOL_EXECUTION_FAILED",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     return normalize_tool_result(operation, result)
@@ -254,9 +171,9 @@ def run_log_read(args: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         return failure(
             operation,
+            "TOOL_NOT_AVAILABLE",
             "The log Tool is not available.",
-            code="TOOL_NOT_AVAILABLE",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     try:
@@ -270,13 +187,117 @@ def run_log_read(args: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         return failure(
             operation,
+            "TOOL_EXECUTION_FAILED",
             "The log Tool failed unexpectedly.",
-            code="TOOL_EXECUTION_FAILED",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     return normalize_tool_result(operation, result)
 
+
+
+def _run_task_tool(
+    operation: str,
+    function_name: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """
+    Import and execute one public Task Tool operation.
+
+    Import/execution failures are converted to the same stable CLI-level
+    errors used by the existing Time and Log routes. Business errors are
+    expected to be returned by task_ops.task_tool itself.
+    """
+    try:
+        from task_ops import task_tool
+    except Exception as exc:
+        return failure(
+            operation,
+            "TOOL_NOT_AVAILABLE",
+            "The Task Tool is not available.",
+            f"{type(exc).__name__}: {exc}",
+        )
+
+    action = getattr(task_tool, function_name, None)
+
+    if action is None or not callable(action):
+        return failure(
+            operation,
+            "TOOL_NOT_AVAILABLE",
+            f"The Task Tool operation `{function_name}` is not available.",
+            {"function": function_name},
+        )
+
+    try:
+        result = action(**kwargs)
+    except Exception as exc:
+        return failure(
+            operation,
+            "TOOL_EXECUTION_FAILED",
+            "The Task Tool failed unexpectedly.",
+            f"{type(exc).__name__}: {exc}",
+        )
+
+    return normalize_tool_result(operation, result)
+
+
+def run_task_daily_ensure(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.daily.ensure",
+        "daily_ensure",
+        date=args.date,
+    )
+
+
+def run_task_daily_read(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.daily.read",
+        "daily_read",
+        date=args.date,
+    )
+
+
+def run_task_daily_add(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.daily.add",
+        "daily_add",
+        title=args.title,
+        description=args.description,
+        category=args.category,
+        source=args.source,
+        date=args.date,
+    )
+
+
+def run_task_daily_update(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.daily.update",
+        "daily_update",
+        task_id=args.task_id,
+        title=args.title,
+        description=args.description,
+        category=args.category,
+        date=args.date,
+    )
+
+
+def run_task_daily_status(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.daily.status",
+        "daily_status",
+        task_id=args.task_id,
+        status=args.status,
+        date=args.date,
+    )
+
+
+def run_task_daily_remove(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.daily.remove",
+        "daily_remove",
+        task_id=args.task_id,
+        date=args.date,
+    )
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -383,6 +404,166 @@ def build_parser() -> argparse.ArgumentParser:
         auto_log=False,
     )
 
+
+    task_parser = modules.add_parser(
+        "task",
+        help="Task management operations.",
+    )
+    task_kinds = task_parser.add_subparsers(
+        dest="task_kind",
+        metavar="<kind>",
+    )
+
+    daily_parser = task_kinds.add_parser(
+        "daily",
+        help="Daily Task JSON operations.",
+    )
+    daily_commands = daily_parser.add_subparsers(
+        dest="command",
+        metavar="<command>",
+    )
+
+    daily_ensure = daily_commands.add_parser(
+        "ensure",
+        help="Ensure the target Daily Task JSON file exists.",
+    )
+    daily_ensure.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    daily_ensure.set_defaults(
+        handler=run_task_daily_ensure,
+        route_operation="task.daily.ensure",
+        auto_log=True,
+    )
+
+    daily_read = daily_commands.add_parser(
+        "read",
+        help="Read and validate one existing Daily Task JSON file.",
+    )
+    daily_read.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    daily_read.set_defaults(
+        handler=run_task_daily_read,
+        route_operation="task.daily.read",
+        auto_log=True,
+    )
+
+    daily_add = daily_commands.add_parser(
+        "add",
+        help="Add one Task to an existing Daily Task JSON file.",
+    )
+    daily_add.add_argument(
+        "--title",
+        required=True,
+        help="Task title.",
+    )
+    daily_add.add_argument(
+        "--description",
+        default="",
+        help="Optional detailed Task description. Default: empty.",
+    )
+    daily_add.add_argument(
+        "--category",
+        default="未分类",
+        help='User-defined category. Default: "未分类".',
+    )
+    daily_add.add_argument(
+        "--source",
+        choices=["manual", "carryover", "standing"],
+        default="manual",
+        help='Daily Task source. Default: "manual".',
+    )
+    daily_add.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    daily_add.set_defaults(
+        handler=run_task_daily_add,
+        route_operation="task.daily.add",
+        auto_log=True,
+    )
+
+    daily_update = daily_commands.add_parser(
+        "update",
+        help="Update editable fields of one existing Daily Task.",
+    )
+    daily_update.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Daily Task ID, for example D20260905-001.",
+    )
+    daily_update.add_argument(
+        "--title",
+        help="New Task title.",
+    )
+    daily_update.add_argument(
+        "--description",
+        help="New Task description.",
+    )
+    daily_update.add_argument(
+        "--category",
+        help="New user-defined category.",
+    )
+    daily_update.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    daily_update.set_defaults(
+        handler=run_task_daily_update,
+        route_operation="task.daily.update",
+        auto_log=True,
+    )
+
+    daily_status = daily_commands.add_parser(
+        "status",
+        help="Set Daily Task status.",
+    )
+    daily_status.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Daily Task ID.",
+    )
+    daily_status.add_argument(
+        "--status",
+        required=True,
+        choices=["pending", "done"],
+        help="Target Task status.",
+    )
+    daily_status.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    daily_status.set_defaults(
+        handler=run_task_daily_status,
+        route_operation="task.daily.status",
+        auto_log=True,
+    )
+
+    daily_remove = daily_commands.add_parser(
+        "remove",
+        help="Physically remove one existing Daily Task.",
+    )
+    daily_remove.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Daily Task ID.",
+    )
+    daily_remove.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    daily_remove.set_defaults(
+        handler=run_task_daily_remove,
+        route_operation="task.daily.remove",
+        auto_log=True,
+    )
+
     return parser
 
 
@@ -419,16 +600,16 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         result = failure(
             operation,
+            "INTERRUPTED",
             "Operation interrupted by the user.",
-            code="INTERRUPTED",
         )
 
     except Exception as exc:
         result = failure(
             operation,
+            "UNHANDLED_ERROR",
             "Unhandled MuseAI CLI error.",
-            code="UNHANDLED_ERROR",
-            details=f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}",
         )
 
     result = normalize_tool_result(operation, result)
