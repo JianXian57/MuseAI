@@ -251,6 +251,7 @@ def daily_add(
     description: str = "",
     category: str = "未分类",
     source: str = "manual",
+    long_task_id: str | None = None,
     date: str | None = None,
     meta: dict[str, Any] | None = None,
     daily_dir: str | Path | None = None,
@@ -262,6 +263,7 @@ def daily_add(
         description=description,
         category=category,
         source=source,
+        long_task_id=long_task_id,
         date=date,
         meta=meta,
         daily_dir=daily_dir,
@@ -274,6 +276,8 @@ def daily_update(
     title: str | None = None,
     description: str | None = None,
     category: str | None = None,
+    long_task_id: str | None = None,
+    clear_long_task_id: bool = False,
     date: str | None = None,
     daily_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -284,6 +288,8 @@ def daily_update(
         title=title,
         description=description,
         category=category,
+        long_task_id=long_task_id,
+        clear_long_task_id=clear_long_task_id,
         date=date,
         daily_dir=daily_dir,
     )

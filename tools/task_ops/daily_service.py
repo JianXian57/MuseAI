@@ -18,8 +18,13 @@ Envelope:
     date = "YYYY-MM-DD"
     tasks = [...]
 
-Daily-specific Task field:
+Daily-specific Task fields:
     source
+    long_task_id
+
+`long_task_id` is an optional relation to one Long Task. This service validates
+the Long Task ID format only; it does not require the referenced Long Task to
+exist, so Daily stays independent from Long storage.
 
 This module returns plain Python data + warning lists and does not build
 MuseAI public Tool results.
@@ -125,6 +130,28 @@ def new_daily_document(date: str) -> dict[str, Any]:
     }
 
 
+def normalize_long_task_id(value: str | None) -> str | None:
+    """
+    Validate one optional Long Task relation and return its canonical ID.
+
+    Only the stable LYYYYMMDD-NNN identifier is checked here. The referenced
+    Long Task does not need to be loaded or even exist yet.
+    """
+    if value is None:
+        return None
+
+    if not isinstance(value, str) or not value.strip():
+        raise InvalidTaskIdError(
+            "`long_task_id` must be null or a valid Long Task ID."
+        )
+
+    parsed = parse_task_id(
+        value,
+        expected_prefix="L",
+    )
+    return str(parsed["id"])
+
+
 def validate_daily_document(
     document: dict[str, Any],
     *,
@@ -133,8 +160,9 @@ def validate_daily_document(
     """
     Validate Daily V1 while preserving unknown fields.
 
-    Missing non-core Task fields are defaulted in memory with warnings.
-    Unknown fields are never removed.
+    Missing non-core Task fields are defaulted in memory where appropriate.
+    `long_task_id` is optional; a missing field is treated as null without a
+    warning. Unknown fields are never removed.
     """
     if not isinstance(document, dict):
         raise InvalidDailyDocumentError(
@@ -213,6 +241,18 @@ def validate_daily_document(
             warnings.append(
                 f"UNKNOWN_DAILY_SOURCE: {task_id}: {task['source']}"
             )
+
+        if "long_task_id" not in task:
+            task["long_task_id"] = None
+        else:
+            try:
+                task["long_task_id"] = normalize_long_task_id(
+                    task["long_task_id"]
+                )
+            except InvalidTaskIdError as exc:
+                raise InvalidDailyDocumentError(
+                    f"Task {task_id} has an invalid `long_task_id`: {exc}"
+                ) from exc
 
     return warnings
 
@@ -341,6 +381,7 @@ def add_daily(
     description: str = "",
     category: str = DEFAULT_CATEGORY,
     source: str = "manual",
+    long_task_id: str | None = None,
     date: str | None = None,
     meta: dict[str, Any] | None = None,
     daily_dir: str | Path | None = None,
@@ -368,6 +409,8 @@ def add_daily(
             f"{', '.join(sorted(KNOWN_DAILY_SOURCES))}."
         )
 
+    long_task_id = normalize_long_task_id(long_task_id)
+
     if meta is None:
         meta = {}
     elif not isinstance(meta, dict):
@@ -389,6 +432,7 @@ def add_daily(
         "status": "pending",
         "category": category,
         "source": source,
+        "long_task_id": long_task_id,
         "created_at": timestamp,
         "updated_at": timestamp,
         "completed_at": None,
@@ -414,12 +458,17 @@ def update_daily(
     title: str | None = None,
     description: str | None = None,
     category: str | None = None,
+    long_task_id: str | None = None,
+    clear_long_task_id: bool = False,
     date: str | None = None,
     daily_dir: str | Path | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """
-    Update user-editable Daily fields only:
-        title, description, category
+    Update user-editable Daily fields:
+        title, description, category, long_task_id
+
+    `long_task_id=None` means "do not change the relation".
+    Set `clear_long_task_id=True` to explicitly remove an existing relation.
 
     System-managed fields such as id/status/source/timestamps are not exposed
     here. No-op updates do not modify updated_at or rewrite the file.
@@ -435,6 +484,17 @@ def update_daily(
         expected_date=target_date,
     )
     _, task = find_task(document["tasks"], task_id)
+
+    if not isinstance(clear_long_task_id, bool):
+        raise InvalidDailyDocumentError(
+            "`clear_long_task_id` must be a boolean."
+        )
+
+    if long_task_id is not None and clear_long_task_id:
+        raise InvalidDailyDocumentError(
+            "`long_task_id` and `clear_long_task_id=True` cannot be used "
+            "together."
+        )
 
     requested: dict[str, Any] = {}
 
@@ -458,6 +518,11 @@ def update_daily(
                 "`category` must be a non-empty string."
             )
         requested["category"] = category.strip()
+
+    if long_task_id is not None:
+        requested["long_task_id"] = normalize_long_task_id(long_task_id)
+    elif clear_long_task_id:
+        requested["long_task_id"] = None
 
     changes = {
         field: value
