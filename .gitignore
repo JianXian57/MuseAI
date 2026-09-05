@@ -5,6 +5,7 @@
 # User data
 /config/user.yaml
 /data/**
+!/data/**/
 !/data/.gitkeep
 !/data/**/.gitkeep
 
