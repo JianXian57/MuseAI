@@ -75,6 +75,7 @@ Do not bypass it by directly calling:
 - `task_service.py`;
 - `daily_service.py`;
 - `long_service.py`;
+- `standing_service.py`;
 - internal common services;
 - direct JSON file edits;
 
@@ -94,7 +95,7 @@ Runtime logs are not a development journal. Do not create business lifecycle log
 
 ## Implemented Task Scope
 
-The current Task system includes:
+The current Task system includes Daily, Long, and Standing Tasks.
 
 ### Daily Task
 
@@ -111,13 +112,15 @@ Daily Task records may contain:
 
 - `source`
 - `long_task_id`
+- `standing_task_id`
 
-`source` and `long_task_id` have independent meanings:
+These fields have independent meanings:
 
 - `source` describes how the Daily Task was created;
-- `long_task_id` describes an optional relationship to a Long Task.
+- `long_task_id` describes an optional relationship to a Long Task;
+- `standing_task_id` describes the optional Standing Task occurrence that generated or owns the Daily occurrence.
 
-Do not change `source` merely because a Daily Task is related to a Long Task.
+Do not change `source` merely because a Daily Task is related to a Long or Standing Task.
 
 ### Long Task
 
@@ -147,13 +150,45 @@ Long Task state includes:
 
 Completion and archive are independent concepts.
 
+### Standing Task
+
+Public operations:
+
+- `task standing ensure`
+- `task standing read`
+- `task standing add`
+- `task standing update`
+- `task standing enable`
+- `task standing disable`
+- `task standing schedule`
+- `task standing due`
+- `task standing mark-generated`
+- `task standing remove`
+
+Standing Task state includes:
+
+- enabled/disabled recurrence state;
+- recurrence schedule;
+- optional Long Task relation;
+- last generated calendar date.
+
+Standing V1 supports:
+
+- `daily`;
+- `weekly`;
+- `monthly`;
+- `yearly`.
+
+Standing recurrence participation is controlled by `enabled`.
+
+Standing V1 keeps Common Task Core compatibility but does not expose a completion-status workflow. Its stored Task status remains `pending` and `completed_at` remains `null`.
+
 ## Currently Unimplemented Scope
 
 Do not assume that a planned component is operational merely because it appears in project documentation or the intended directory structure.
 
 In particular, until the corresponding implementation exists, do not emulate planned behavior by directly editing Data for features such as:
 
-- Standing Task;
 - Daily Report;
 - API Price tracking;
 - future custom functions;
@@ -317,25 +352,48 @@ When operating on an explicit Daily Task ID, use the date encoded in that ID as 
 
 If an explicitly provided date conflicts with the ID date, do not silently reinterpret the request.
 
-### Long Relationship
+### Task Relationships
 
-A Daily Task may have:
-
-```json
-"long_task_id": "L20260905-001"
-```
-
-or:
+A Daily Task may independently contain:
 
 ```json
-"long_task_id": null
+{
+  "long_task_id": "L20260905-001",
+  "standing_task_id": "S20260905-001"
+}
 ```
 
-The relation is optional.
+Either relation may also be `null`.
 
-Do not require the Daily Task date to match the creation date encoded in the Long Task ID.
+`long_task_id` means that the Daily Task contributes to or belongs to one Long Task.
 
-Do not infer a Long relationship from similar titles alone.
+`standing_task_id` identifies the Standing Task occurrence associated with that Daily Task.
+
+Do not require the Daily Task date to match the creation date encoded in either relation ID.
+
+Do not infer Long or Standing relationships from similar titles alone.
+
+When a Standing-generated Daily Task is created, preserve:
+
+```text
+source = standing
+standing_task_id = the generating Standing Task ID
+long_task_id = the Standing Task's Long relation, when present
+```
+
+Within one Daily file, a non-null `standing_task_id` identifies at most one Daily occurrence.
+
+### Standing Generation Idempotency
+
+A Daily add with a non-null `standing_task_id` is idempotent within the target Daily file.
+
+If a Daily Task with the same `standing_task_id` already exists:
+
+- do not create a duplicate Daily Task;
+- preserve the existing Daily Task;
+- accept the returned `created=false` result as an idempotent recovery result.
+
+This behavior supports recovery when Daily creation succeeds but Standing `mark-generated` has not yet completed.
 
 ### Daily Removal
 
@@ -432,6 +490,182 @@ Do not automatically activate a restored Task unless the user also requests reac
 The current Long V1 interface has no normal physical remove operation.
 
 Do not simulate one through direct JSON editing.
+
+## Standing Task Rules
+
+### Storage and Writer Boundary
+
+Standing Task data is owned by the Standing Tool and Standing Service.
+
+Do not directly edit:
+
+`data/tasks/standing-task/standing-task.json`
+
+to perform an ordinary runtime operation.
+
+Standing Service must not directly write Daily Task JSON.
+
+Daily Service remains the only Daily data writer.
+
+Main coordinates the cross-kind workflow through public Tools.
+
+### Enabled State
+
+`enabled` controls whether a Standing recurrence participates in due checks.
+
+Use:
+
+- `task standing enable`
+- `task standing disable`
+
+Do not reinterpret `enabled` as completion status.
+
+Standing V1 does not use Long-style `active` state.
+
+### Schedule Types
+
+Supported schedules are:
+
+#### Daily
+
+```json
+{
+  "type": "daily"
+}
+```
+
+#### Weekly
+
+```json
+{
+  "type": "weekly",
+  "weekdays": ["monday", "friday"]
+}
+```
+
+#### Monthly
+
+```json
+{
+  "type": "monthly",
+  "day": 31
+}
+```
+
+Monthly dates use strict calendar matching.
+
+For example, `day=31` does not automatically move to April 30 or another month's final day.
+
+#### Yearly
+
+```json
+{
+  "type": "yearly",
+  "month": 2,
+  "day": 29
+}
+```
+
+Yearly dates use strict calendar matching.
+
+A February 29 schedule triggers only in leap years.
+
+Do not invent end-of-month or nearest-date behavior when the stored schedule does not express it.
+
+### Long Relationship
+
+A Standing Task may optionally contain a `long_task_id`.
+
+The Standing Tool validates the relation ID format but does not require the referenced Long Task to exist.
+
+When a due Standing occurrence generates a Daily Task, its non-null `long_task_id` is inherited by the Daily payload.
+
+Do not infer the relation from title similarity.
+
+### Due Check
+
+Use:
+
+`task standing due`
+
+to determine recurrence state for a calendar date.
+
+A Standing Task is due only when:
+
+- it is enabled;
+- its schedule matches the target date;
+- its `last_generated_date` is not already the target date.
+
+Possible non-due reasons include:
+
+- `disabled`;
+- `schedule_not_matched`;
+- `already_generated`.
+
+A due result may provide the deterministic Daily creation payload.
+
+Do not mark a Standing occurrence generated merely because its schedule matches.
+
+### Standing to Daily Generation
+
+The normal cross-kind sequence is:
+
+1. run `task standing due` for the target date;
+2. for each due Standing Task, ensure the target Daily file exists;
+3. create the Daily occurrence through `task daily add` using the returned payload;
+4. accept either:
+   - `created=true` for a new occurrence; or
+   - `created=false` when the same `standing_task_id` already exists and the Daily add is an idempotent retry;
+5. only after the Daily occurrence is confirmed to exist, run `task standing mark-generated`.
+
+Do not reverse Steps 3 and 5.
+
+Do not call `mark-generated` before the Daily occurrence exists.
+
+### Generation Recovery Rule
+
+The Daily write and Standing generation-state write are separate deterministic operations.
+
+If execution stops after Daily creation but before `mark-generated`:
+
+1. run the Standing due/generation workflow again;
+2. retry the Daily add with the same `standing_task_id`;
+3. accept the existing Daily returned with `created=false`;
+4. then complete `task standing mark-generated`.
+
+Do not create a second Daily occurrence to recover from this state.
+
+### Generation State
+
+`last_generated_date` records the most recent calendar date whose Daily occurrence has been confirmed.
+
+`task standing mark-generated` is idempotent for the same date.
+
+Do not move `last_generated_date` backward.
+
+Do not mark a date that does not match the Standing schedule.
+
+### Schedule Updates
+
+Use:
+
+`task standing schedule`
+
+to replace a recurrence schedule.
+
+Changing the schedule does not automatically erase `last_generated_date`.
+
+Do not manually reset generation state unless a future explicit Tool operation or project rule supports it.
+
+### Standing Removal
+
+`task standing remove` physically deletes the Standing recurrence rule.
+
+Execute it only when the user clearly requests removal/deletion of the Standing rule.
+
+Disabling a Standing Task is different from removing it.
+
+If the user wants the recurrence paused but preserved, use `disable` rather than `remove`.
 
 ## Logging Rule
 
@@ -613,7 +847,9 @@ When the user requests a Daily Task addition:
 2. ensure the target Daily file exists;
 3. add the Task;
 4. include `long_task_id` only when the relation is explicit or already confirmed;
-5. preserve the actual `source`.
+5. include `standing_task_id` only when the Standing relation is explicit, confirmed, or supplied by a Standing due payload;
+6. preserve the actual `source`;
+7. when a non-null `standing_task_id` is used, accept `created=false` as a valid idempotent result when the corresponding Daily occurrence already exists.
 
 ### Modify Daily Task
 
@@ -662,6 +898,43 @@ When restoring:
 1. call `long unarchive`;
 2. preserve its inactive restored state;
 3. activate only if the user explicitly wants the Task resumed.
+
+### Add Standing Task
+
+When the user requests a new Standing Task:
+
+1. ensure Standing storage exists if necessary;
+2. preserve the requested title, description, and category;
+3. create the exact supported recurrence schedule;
+4. preserve the requested enabled/disabled state;
+5. include `long_task_id` only when the relation is explicit or already confirmed;
+6. do not invent missing monthly days, yearly month/day values, or weekly weekdays.
+
+### Modify Standing Task
+
+Use the narrow public operation matching the requested semantic action:
+
+- `standing update` for title, description, category, or Long relation;
+- `standing enable` / `standing disable` for recurrence participation;
+- `standing schedule` for recurrence changes;
+- `standing remove` for physical deletion.
+
+Do not collapse these actions into direct JSON editing.
+
+### Generate Standing Occurrences
+
+When the user asks to process or generate due Standing Tasks for a date:
+
+1. resolve the target date;
+2. call `standing due`;
+3. process only items returned as due;
+4. ensure the target Daily file exists before adding occurrences;
+5. create each Daily occurrence using the due item's `daily_payload`;
+6. accept `created=false` as successful idempotent recovery when the same `standing_task_id` already exists;
+7. call `standing mark-generated` only after that Daily occurrence is confirmed;
+8. preserve failures per occurrence rather than falsely reporting the whole batch as generated.
+
+Do not independently reproduce schedule calculations already performed by the Standing Tool.
 
 ## Development Process
 
@@ -732,7 +1005,9 @@ Before completing a runtime operation, verify that:
 - the correct layer handled the work;
 - deterministic operations used the public Tool when available;
 - Tool `ok`, warnings, and errors were interpreted correctly;
-- Daily/Long semantics were preserved;
+- Daily/Long/Standing semantics were preserved;
+- Standing-generated Daily occurrences preserved `source`, `standing_task_id`, and inherited `long_task_id` when applicable;
+- `mark-generated` occurred only after the Daily occurrence was confirmed;
 - archive completion intent was confirmed when required;
 - no runtime Data was directly edited to bypass a Tool;
 - no unsupported planned feature was presented as implemented;

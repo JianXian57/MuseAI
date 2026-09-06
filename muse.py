@@ -266,6 +266,7 @@ def run_task_daily_add(args: argparse.Namespace) -> dict[str, Any]:
         category=args.category,
         source=args.source,
         long_task_id=args.long_task_id,
+        standing_task_id=args.standing_task_id,
         date=args.date,
     )
 
@@ -280,6 +281,8 @@ def run_task_daily_update(args: argparse.Namespace) -> dict[str, Any]:
         category=args.category,
         long_task_id=args.long_task_id,
         clear_long_task_id=args.clear_long_task_id,
+        standing_task_id=args.standing_task_id,
+        clear_standing_task_id=args.clear_standing_task_id,
         date=args.date,
     )
 
@@ -411,6 +414,129 @@ def run_task_long_unarchive(args: argparse.Namespace) -> dict[str, Any]:
     return _run_task_tool(
         "task.long.unarchive",
         "long_unarchive",
+        task_id=args.task_id,
+    )
+
+
+
+def _standing_schedule_from_args(
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    schedule_type = args.schedule
+
+    if schedule_type == "daily":
+        return {
+            "type": "daily",
+        }
+
+    if schedule_type == "weekly":
+        return {
+            "type": "weekly",
+            "weekdays": args.weekdays,
+        }
+
+    if schedule_type == "monthly":
+        return {
+            "type": "monthly",
+            "day": args.day,
+        }
+
+    return {
+        "type": "yearly",
+        "month": args.month,
+        "day": args.day,
+    }
+
+
+def run_task_standing_ensure(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.ensure",
+        "standing_ensure",
+    )
+
+
+def run_task_standing_read(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.read",
+        "standing_read",
+    )
+
+
+def run_task_standing_add(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.add",
+        "standing_add",
+        title=args.title,
+        description=args.description,
+        category=args.category,
+        enabled=not args.disabled,
+        schedule=_standing_schedule_from_args(args),
+        long_task_id=args.long_task_id,
+    )
+
+
+def run_task_standing_update(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.update",
+        "standing_update",
+        task_id=args.task_id,
+        title=args.title,
+        description=args.description,
+        category=args.category,
+        long_task_id=args.long_task_id,
+        clear_long_task_id=args.clear_long_task_id,
+    )
+
+
+def run_task_standing_enable(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.enable",
+        "standing_enable",
+        task_id=args.task_id,
+    )
+
+
+def run_task_standing_disable(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.disable",
+        "standing_disable",
+        task_id=args.task_id,
+    )
+
+
+def run_task_standing_schedule(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.schedule",
+        "standing_schedule",
+        task_id=args.task_id,
+        schedule=_standing_schedule_from_args(args),
+    )
+
+
+def run_task_standing_due(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.due",
+        "standing_due",
+        date=args.date,
+        include_not_due=args.include_not_due,
+    )
+
+
+def run_task_standing_mark_generated(
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.mark-generated",
+        "standing_mark_generated",
+        task_id=args.task_id,
+        date=args.date,
+    )
+
+
+def run_task_standing_remove(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.standing.remove",
+        "standing_remove",
         task_id=args.task_id,
     )
 
@@ -598,6 +724,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional related Long Task ID, for example L20260905-001.",
     )
     daily_add.add_argument(
+        "--standing-task-id",
+        dest="standing_task_id",
+        help="Optional related Standing Task ID, for example S20260905-001.",
+    )
+    daily_add.add_argument(
         "--date",
         help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
     )
@@ -639,6 +770,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--clear-long-task-id",
         action="store_true",
         help="Remove the current Long Task relation.",
+    )
+    daily_standing_relation_group = daily_update.add_mutually_exclusive_group()
+    daily_standing_relation_group.add_argument(
+        "--standing-task-id",
+        dest="standing_task_id",
+        help="Set the related Standing Task ID.",
+    )
+    daily_standing_relation_group.add_argument(
+        "--clear-standing-task-id",
+        action="store_true",
+        help="Remove the current Standing Task relation.",
     )
     daily_update.add_argument(
         "--date",
@@ -963,6 +1105,273 @@ def build_parser() -> argparse.ArgumentParser:
     long_unarchive.set_defaults(
         handler=run_task_long_unarchive,
         route_operation="task.long.unarchive",
+        auto_log=True,
+    )
+
+
+    standing_parser = task_kinds.add_parser(
+        "standing",
+        help="Standing Task recurrence operations.",
+    )
+    standing_commands = standing_parser.add_subparsers(
+        dest="command",
+        metavar="<command>",
+    )
+
+    standing_ensure = standing_commands.add_parser(
+        "ensure",
+        help="Ensure the Standing Task JSON file exists.",
+    )
+    standing_ensure.set_defaults(
+        handler=run_task_standing_ensure,
+        route_operation="task.standing.ensure",
+        auto_log=True,
+    )
+
+    standing_read = standing_commands.add_parser(
+        "read",
+        help="Read and validate the Standing Task JSON file.",
+    )
+    standing_read.set_defaults(
+        handler=run_task_standing_read,
+        route_operation="task.standing.read",
+        auto_log=True,
+    )
+
+    standing_add = standing_commands.add_parser(
+        "add",
+        help="Add one Standing Task recurrence rule.",
+    )
+    standing_add.add_argument(
+        "--title",
+        required=True,
+        help="Standing Task title copied to generated Daily Tasks.",
+    )
+    standing_add.add_argument(
+        "--description",
+        default="",
+        help="Optional Standing Task description. Default: empty.",
+    )
+    standing_add.add_argument(
+        "--category",
+        default="未分类",
+        help='User-defined category. Default: "未分类".',
+    )
+    standing_add.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Create the Standing Task disabled.",
+    )
+    standing_add.add_argument(
+        "--long-task-id",
+        dest="long_task_id",
+        help="Optional Long Task relation inherited by generated Daily Tasks.",
+    )
+    standing_add.add_argument(
+        "--schedule",
+        required=True,
+        choices=["daily", "weekly", "monthly", "yearly"],
+        help="Recurrence schedule type.",
+    )
+    standing_add.add_argument(
+        "--weekdays",
+        nargs="+",
+        choices=[
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ],
+        help="Weekly recurrence weekdays.",
+    )
+    standing_add.add_argument(
+        "--day",
+        type=int,
+        help="Monthly day, or yearly day of month.",
+    )
+    standing_add.add_argument(
+        "--month",
+        type=int,
+        help="Yearly recurrence month.",
+    )
+    standing_add.set_defaults(
+        handler=run_task_standing_add,
+        route_operation="task.standing.add",
+        auto_log=True,
+    )
+
+    standing_update = standing_commands.add_parser(
+        "update",
+        help="Update ordinary editable fields of one Standing Task.",
+    )
+    standing_update.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Standing Task ID, for example S20260905-001.",
+    )
+    standing_update.add_argument(
+        "--title",
+        help="New Standing Task title.",
+    )
+    standing_update.add_argument(
+        "--description",
+        help="New Standing Task description.",
+    )
+    standing_update.add_argument(
+        "--category",
+        help="New user-defined category.",
+    )
+    standing_long_group = standing_update.add_mutually_exclusive_group()
+    standing_long_group.add_argument(
+        "--long-task-id",
+        dest="long_task_id",
+        help="Set the optional Long Task relation.",
+    )
+    standing_long_group.add_argument(
+        "--clear-long-task-id",
+        action="store_true",
+        help="Remove the current Long Task relation.",
+    )
+    standing_update.set_defaults(
+        handler=run_task_standing_update,
+        route_operation="task.standing.update",
+        auto_log=True,
+    )
+
+    standing_enable = standing_commands.add_parser(
+        "enable",
+        help="Enable one Standing Task recurrence rule.",
+    )
+    standing_enable.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Standing Task ID.",
+    )
+    standing_enable.set_defaults(
+        handler=run_task_standing_enable,
+        route_operation="task.standing.enable",
+        auto_log=True,
+    )
+
+    standing_disable = standing_commands.add_parser(
+        "disable",
+        help="Disable one Standing Task recurrence rule.",
+    )
+    standing_disable.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Standing Task ID.",
+    )
+    standing_disable.set_defaults(
+        handler=run_task_standing_disable,
+        route_operation="task.standing.disable",
+        auto_log=True,
+    )
+
+    standing_schedule = standing_commands.add_parser(
+        "schedule",
+        help="Replace one Standing Task recurrence schedule.",
+    )
+    standing_schedule.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Standing Task ID.",
+    )
+    standing_schedule.add_argument(
+        "--schedule",
+        required=True,
+        choices=["daily", "weekly", "monthly", "yearly"],
+        help="New recurrence schedule type.",
+    )
+    standing_schedule.add_argument(
+        "--weekdays",
+        nargs="+",
+        choices=[
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ],
+        help="Weekly recurrence weekdays.",
+    )
+    standing_schedule.add_argument(
+        "--day",
+        type=int,
+        help="Monthly day, or yearly day of month.",
+    )
+    standing_schedule.add_argument(
+        "--month",
+        type=int,
+        help="Yearly recurrence month.",
+    )
+    standing_schedule.set_defaults(
+        handler=run_task_standing_schedule,
+        route_operation="task.standing.schedule",
+        auto_log=True,
+    )
+
+    standing_due = standing_commands.add_parser(
+        "due",
+        help="Check which Standing Tasks are due on one date.",
+    )
+    standing_due.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    standing_due.add_argument(
+        "--include-not-due",
+        action="store_true",
+        help="Include disabled, unmatched, and already-generated rules.",
+    )
+    standing_due.set_defaults(
+        handler=run_task_standing_due,
+        route_operation="task.standing.due",
+        auto_log=True,
+    )
+
+    standing_mark_generated = standing_commands.add_parser(
+        "mark-generated",
+        help="Record that one Standing Task Daily occurrence exists for a date.",
+    )
+    standing_mark_generated.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Standing Task ID.",
+    )
+    standing_mark_generated.add_argument(
+        "--date",
+        help="Generated Daily date. Defaults to current MuseAI date.",
+    )
+    standing_mark_generated.set_defaults(
+        handler=run_task_standing_mark_generated,
+        route_operation="task.standing.mark-generated",
+        auto_log=True,
+    )
+
+    standing_remove = standing_commands.add_parser(
+        "remove",
+        help="Physically remove one Standing Task recurrence rule.",
+    )
+    standing_remove.add_argument(
+        "--id",
+        dest="task_id",
+        required=True,
+        help="Exact Standing Task ID.",
+    )
+    standing_remove.set_defaults(
+        handler=run_task_standing_remove,
+        route_operation="task.standing.remove",
         auto_log=True,
     )
 
