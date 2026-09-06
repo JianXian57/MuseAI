@@ -13,6 +13,7 @@ Responsibilities
 - Read Task JSON documents.
 - Atomically write Task JSON documents.
 - Parse and generate stable Task IDs.
+- Normalize optional cross-Task relation IDs.
 - Find Tasks by ID.
 - Apply common status transitions.
 
@@ -305,6 +306,50 @@ def parse_task_id(
         "date": canonical_date,
         "sequence": sequence,
     }
+
+
+def normalize_optional_task_relation(
+    value: str | None,
+    *,
+    expected_prefix: str,
+    field_name: str,
+) -> str | None:
+    """
+    Validate one optional cross-Task relation by stable Task ID format only.
+
+    The referenced Task is intentionally not loaded and does not need to exist.
+    This keeps Task kinds independent while centralizing relation-ID validation.
+    """
+    if value is None:
+        return None
+
+    task_kind_names = {
+        "D": "Daily",
+        "L": "Long",
+        "S": "Standing",
+    }
+
+    if expected_prefix not in task_kind_names:
+        raise InvalidTaskIdError(
+            "Relation Task ID prefix must be D, L, or S."
+        )
+
+    if not isinstance(field_name, str) or not field_name.strip():
+        raise InvalidTaskIdError(
+            "Relation field name must be a non-empty string."
+        )
+
+    if not isinstance(value, str) or not value.strip():
+        kind_name = task_kind_names[expected_prefix]
+        raise InvalidTaskIdError(
+            f"`{field_name}` must be null or a valid {kind_name} Task ID."
+        )
+
+    parsed = parse_task_id(
+        value,
+        expected_prefix=expected_prefix,
+    )
+    return str(parsed["id"])
 
 
 def generate_task_id(

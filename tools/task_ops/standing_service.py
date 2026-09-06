@@ -68,6 +68,7 @@ from task_ops.task_service import (
     find_task,
     generate_task_id,
     get_task_timestamp,
+    normalize_optional_task_relation,
     parse_task_id,
     read_json,
     validate_common_task,
@@ -165,20 +166,6 @@ def new_standing_document() -> dict[str, Any]:
         "kind": STANDING_KIND,
         "tasks": [],
     }
-
-
-def normalize_long_task_id(value: str | None) -> str | None:
-    """Validate an optional Long Task relation by ID format only."""
-    if value is None:
-        return None
-
-    if not isinstance(value, str) or not value.strip():
-        raise InvalidTaskIdError(
-            "`long_task_id` must be null or a valid Long Task ID."
-        )
-
-    parsed = parse_task_id(value, expected_prefix="L")
-    return str(parsed["id"])
 
 
 def _normalize_weekdays(value: Any) -> list[str]:
@@ -433,8 +420,10 @@ def validate_standing_document(
             task["long_task_id"] = None
         else:
             try:
-                task["long_task_id"] = normalize_long_task_id(
-                    task["long_task_id"]
+                task["long_task_id"] = normalize_optional_task_relation(
+                    task["long_task_id"],
+                    expected_prefix="L",
+                    field_name="long_task_id",
                 )
             except InvalidTaskIdError as exc:
                 raise InvalidStandingDocumentError(
@@ -599,7 +588,11 @@ def add_standing(
             "`enabled` must be a boolean."
         )
 
-    long_task_id = normalize_long_task_id(long_task_id)
+    long_task_id = normalize_optional_task_relation(
+        long_task_id,
+        expected_prefix="L",
+        field_name="long_task_id",
+    )
 
     if meta is None:
         meta = {}
@@ -698,8 +691,10 @@ def update_standing(
         requested["category"] = category.strip()
 
     if long_task_id is not None:
-        requested["long_task_id"] = normalize_long_task_id(
-            long_task_id
+        requested["long_task_id"] = normalize_optional_task_relation(
+            long_task_id,
+            expected_prefix="L",
+            field_name="long_task_id",
         )
     elif clear_long_task_id:
         requested["long_task_id"] = None

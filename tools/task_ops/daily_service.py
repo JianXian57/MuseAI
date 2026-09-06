@@ -56,6 +56,7 @@ from task_ops.task_service import (
     find_task,
     generate_task_id,
     get_task_timestamp,
+    normalize_optional_task_relation,
     parse_task_id,
     read_json,
     validate_common_task,
@@ -135,50 +136,6 @@ def new_daily_document(date: str) -> dict[str, Any]:
         "date": date,
         "tasks": [],
     }
-
-
-def normalize_long_task_id(value: str | None) -> str | None:
-    """
-    Validate one optional Long Task relation and return its canonical ID.
-
-    Only the stable LYYYYMMDD-NNN identifier is checked here. The referenced
-    Long Task does not need to be loaded or even exist yet.
-    """
-    if value is None:
-        return None
-
-    if not isinstance(value, str) or not value.strip():
-        raise InvalidTaskIdError(
-            "`long_task_id` must be null or a valid Long Task ID."
-        )
-
-    parsed = parse_task_id(
-        value,
-        expected_prefix="L",
-    )
-    return str(parsed["id"])
-
-
-def normalize_standing_task_id(value: str | None) -> str | None:
-    """
-    Validate one optional Standing Task relation and return its canonical ID.
-
-    Only the stable SYYYYMMDD-NNN identifier is checked here. The referenced
-    Standing Task does not need to be loaded or exist.
-    """
-    if value is None:
-        return None
-
-    if not isinstance(value, str) or not value.strip():
-        raise InvalidTaskIdError(
-            "`standing_task_id` must be null or a valid Standing Task ID."
-        )
-
-    parsed = parse_task_id(
-        value,
-        expected_prefix="S",
-    )
-    return str(parsed["id"])
 
 
 def validate_daily_document(
@@ -275,8 +232,10 @@ def validate_daily_document(
             task["long_task_id"] = None
         else:
             try:
-                task["long_task_id"] = normalize_long_task_id(
-                    task["long_task_id"]
+                task["long_task_id"] = normalize_optional_task_relation(
+                    task["long_task_id"],
+                    expected_prefix="L",
+                    field_name="long_task_id",
                 )
             except InvalidTaskIdError as exc:
                 raise InvalidDailyDocumentError(
@@ -287,8 +246,10 @@ def validate_daily_document(
             task["standing_task_id"] = None
         else:
             try:
-                task["standing_task_id"] = normalize_standing_task_id(
-                    task["standing_task_id"]
+                task["standing_task_id"] = normalize_optional_task_relation(
+                    task["standing_task_id"],
+                    expected_prefix="S",
+                    field_name="standing_task_id",
                 )
             except InvalidTaskIdError as exc:
                 raise InvalidDailyDocumentError(
@@ -425,7 +386,11 @@ def find_daily_by_standing_task_id(
 
     A Standing rule may generate at most one Daily occurrence per Daily file.
     """
-    standing_task_id = normalize_standing_task_id(standing_task_id)
+    standing_task_id = normalize_optional_task_relation(
+        standing_task_id,
+        expected_prefix="S",
+        field_name="standing_task_id",
+    )
 
     for task in tasks:
         if task.get("standing_task_id") == standing_task_id:
@@ -469,8 +434,16 @@ def add_daily(
             f"{', '.join(sorted(KNOWN_DAILY_SOURCES))}."
         )
 
-    long_task_id = normalize_long_task_id(long_task_id)
-    standing_task_id = normalize_standing_task_id(standing_task_id)
+    long_task_id = normalize_optional_task_relation(
+        long_task_id,
+        expected_prefix="L",
+        field_name="long_task_id",
+    )
+    standing_task_id = normalize_optional_task_relation(
+        standing_task_id,
+        expected_prefix="S",
+        field_name="standing_task_id",
+    )
 
     if standing_task_id is not None:
         existing = find_daily_by_standing_task_id(
@@ -613,12 +586,20 @@ def update_daily(
         requested["category"] = category.strip()
 
     if long_task_id is not None:
-        requested["long_task_id"] = normalize_long_task_id(long_task_id)
+        requested["long_task_id"] = normalize_optional_task_relation(
+            long_task_id,
+            expected_prefix="L",
+            field_name="long_task_id",
+        )
     elif clear_long_task_id:
         requested["long_task_id"] = None
 
     if standing_task_id is not None:
-        standing_task_id = normalize_standing_task_id(standing_task_id)
+        standing_task_id = normalize_optional_task_relation(
+            standing_task_id,
+            expected_prefix="S",
+            field_name="standing_task_id",
+        )
 
         existing = find_daily_by_standing_task_id(
             document["tasks"],
