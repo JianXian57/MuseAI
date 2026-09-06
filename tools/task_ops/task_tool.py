@@ -9,7 +9,7 @@ Recommended location:
 
 Responsibilities
 ----------------
-- Expose public Daily, Long, and Standing Task operations.
+- Expose public Daily, Long, Standing, and Daily-maintenance Task operations.
 - Convert service results/errors into the unified MuseAI Tool protocol.
 
 This module does not:
@@ -25,6 +25,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from common.result import success
+from task_ops.daily_maintenance_service import (
+    apply_daily_maintenance as service_apply_daily_maintenance,
+    check_daily_maintenance as service_check_daily_maintenance,
+)
 from task_ops.daily_service import (
     add_daily as service_add_daily,
     ensure_daily as service_ensure_daily,
@@ -111,6 +115,7 @@ def daily_add(
     source: str = "manual",
     long_task_id: str | None = None,
     standing_task_id: str | None = None,
+    carryover_from_task_id: str | None = None,
     date: str | None = None,
     meta: dict[str, Any] | None = None,
     daily_dir: str | Path | None = None,
@@ -124,6 +129,7 @@ def daily_add(
         source=source,
         long_task_id=long_task_id,
         standing_task_id=standing_task_id,
+        carryover_from_task_id=carryover_from_task_id,
         date=date,
         meta=meta,
         daily_dir=daily_dir,
@@ -374,6 +380,36 @@ def long_unarchive(
         service_unarchive_long,
         task_id=task_id,
         long_dir=long_dir,
+    )
+
+
+def maintenance_check(
+    date: str | None = None,
+    *,
+    daily_dir: str | Path | None = None,
+    standing_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.maintenance.check",
+        service_check_daily_maintenance,
+        date=date,
+        daily_dir=daily_dir,
+        standing_dir=standing_dir,
+    )
+
+
+def maintenance_apply(
+    date: str | None = None,
+    *,
+    daily_dir: str | Path | None = None,
+    standing_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return _run(
+        "task.maintenance.apply",
+        service_apply_daily_maintenance,
+        date=date,
+        daily_dir=daily_dir,
+        standing_dir=standing_dir,
     )
 
 

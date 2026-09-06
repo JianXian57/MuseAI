@@ -10,7 +10,7 @@ Recommended location:
 Responsibilities
 ----------------
 - Register the `task` CLI tree under the root MuseAI parser.
-- Define Daily, Long, and Standing CLI arguments.
+- Define Daily, Long, Standing, and maintenance CLI arguments.
 - Convert parsed CLI arguments into public Task Tool calls.
 - Preserve stable `route_operation` and `auto_log` metadata for muse.py.
 
@@ -107,6 +107,7 @@ def run_task_daily_add(args: argparse.Namespace) -> dict[str, Any]:
         source=args.source,
         long_task_id=args.long_task_id,
         standing_task_id=args.standing_task_id,
+        carryover_from_task_id=args.carryover_from_task_id,
         date=args.date,
     )
 
@@ -142,6 +143,22 @@ def run_task_daily_remove(args: argparse.Namespace) -> dict[str, Any]:
         "task.daily.remove",
         "daily_remove",
         task_id=args.task_id,
+        date=args.date,
+    )
+
+
+def run_task_maintenance_check(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.maintenance.check",
+        "maintenance_check",
+        date=args.date,
+    )
+
+
+def run_task_maintenance_apply(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_task_tool(
+        "task.maintenance.apply",
+        "maintenance_apply",
         date=args.date,
     )
 
@@ -470,6 +487,14 @@ def register_task_cli(modules: Any) -> argparse.ArgumentParser:
         help="Optional related Standing Task ID, for example S20260905-001.",
     )
     daily_add.add_argument(
+        "--carryover-from-task-id",
+        dest="carryover_from_task_id",
+        help=(
+            "Prior Daily Task ID used as carryover provenance. "
+            "Valid only with --source carryover."
+        ),
+    )
+    daily_add.add_argument(
         "--date",
         help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
     )
@@ -576,6 +601,44 @@ def register_task_cli(modules: Any) -> argparse.ArgumentParser:
     daily_remove.set_defaults(
         handler=run_task_daily_remove,
         route_operation="task.daily.remove",
+        auto_log=True,
+    )
+
+
+    maintenance_parser = task_kinds.add_parser(
+        "maintenance",
+        help="Daily Task cross-day maintenance operations.",
+    )
+    maintenance_commands = maintenance_parser.add_subparsers(
+        dest="command",
+        metavar="<command>",
+    )
+
+    maintenance_check = maintenance_commands.add_parser(
+        "check",
+        help="Read-only check of carryover and Standing maintenance actions.",
+    )
+    maintenance_check.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    maintenance_check.set_defaults(
+        handler=run_task_maintenance_check,
+        route_operation="task.maintenance.check",
+        auto_log=True,
+    )
+
+    maintenance_apply = maintenance_commands.add_parser(
+        "apply",
+        help="Apply idempotent cross-day Task maintenance for one date.",
+    )
+    maintenance_apply.add_argument(
+        "--date",
+        help="Target date in YYYY-MM-DD format. Defaults to current MuseAI date.",
+    )
+    maintenance_apply.set_defaults(
+        handler=run_task_maintenance_apply,
+        route_operation="task.maintenance.apply",
         auto_log=True,
     )
 

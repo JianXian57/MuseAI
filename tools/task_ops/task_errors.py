@@ -57,6 +57,10 @@ from task_ops.standing_service import (
     StandingNotScheduledError,
     StandingTaskError,
 )
+from task_ops.task_read_service import (
+    InvalidTaskReadDateError,
+    InvalidTaskReadOptionError,
+)
 from task_ops.task_service import (
     DuplicateTaskIdError,
     InvalidTaskDocumentError,
@@ -74,6 +78,8 @@ ERROR_MAPPINGS: tuple[tuple[type[BaseException], str, str], ...] = (
     (InvalidDailyDateError, "INVALID_DAILY_DATE", "The Daily Task date is invalid."),
     (DailyDateMismatchError, "DAILY_DATE_MISMATCH", "The Daily Task document date does not match its target date."),
     (InvalidDailySourceError, "INVALID_DAILY_SOURCE", "The requested Daily Task source is invalid."),
+    (InvalidTaskReadDateError, "INVALID_TASK_READ_DATE", "The requested Task read date is invalid."),
+    (InvalidTaskReadOptionError, "INVALID_TASK_READ_OPTION", "A Task read option is invalid."),
     (LongFileNotFoundError, "LONG_FILE_NOT_FOUND", "A required Long Task collection file does not exist."),
     (InvalidLongCollectionError, "INVALID_LONG_COLLECTION", "The requested Long Task collection is invalid."),
     (InvalidLongDeadlineError, "INVALID_LONG_DEADLINE", "The requested Long Task deadline is invalid."),

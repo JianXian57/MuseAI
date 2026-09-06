@@ -23,16 +23,24 @@ Daily-specific Task fields:
     source
     long_task_id
     standing_task_id
+    carryover_from_task_id
 
 `long_task_id` is an optional relation to one Long Task.
 `standing_task_id` is an optional relation to one Standing Task occurrence.
+`carryover_from_task_id` records the immediately previous Daily occurrence from
+which a carryover Task was created.
 
 This service validates relation ID formats only; it does not require referenced
-Long or Standing Tasks to exist, so Daily stays independent from their storage.
+Long, Standing, or prior Daily Tasks to exist, so Daily stays independent from
+their storage.
 
 When `standing_task_id` is supplied to add_daily(), the operation is idempotent
 within the target Daily file: an existing Daily Task with the same non-null
 `standing_task_id` is returned instead of creating a duplicate.
+
+When `carryover_from_task_id` is supplied for source="carryover", add_daily() is
+likewise idempotent within the target Daily file. Carryover provenance always
+points to an earlier Daily date and never carries a Standing occurrence ID.
 
 This module returns plain Python data + warning lists and does not build
 MuseAI public Tool results.
@@ -150,8 +158,9 @@ def validate_daily_document(
     Validate Daily V1 while preserving unknown fields.
 
     Missing non-core Task fields are defaulted in memory where appropriate.
-    `long_task_id` and `standing_task_id` are optional; missing relation fields
-    are treated as null without warnings. Unknown fields are never removed.
+    `long_task_id`, `standing_task_id`, and `carryover_from_task_id` are
+    optional storage fields; missing relation fields are treated as null without
+    warnings. Unknown fields are never removed.
     """
     if not isinstance(document, dict):
         raise InvalidDailyDocumentError(
@@ -258,6 +267,48 @@ def validate_daily_document(
                 raise InvalidDailyDocumentError(
                     f"Task {task_id} has an invalid `standing_task_id`: {exc}"
                 ) from exc
+
+        if "carryover_from_task_id" not in task:
+            task["carryover_from_task_id"] = None
+        else:
+            try:
+                task["carryover_from_task_id"] = normalize_optional_task_relation(
+                    task["carryover_from_task_id"],
+                    expected_prefix="D",
+                    field_name="carryover_from_task_id",
+                )
+            except InvalidTaskIdError as exc:
+                raise InvalidDailyDocumentError(
+                    f"Task {task_id} has an invalid `carryover_from_task_id`: {exc}"
+                ) from exc
+
+        carryover_from_task_id = task["carryover_from_task_id"]
+
+        if task["source"] == "carryover":
+            if carryover_from_task_id is None:
+                raise InvalidDailyDocumentError(
+                    f"Carryover Task {task_id} must have `carryover_from_task_id`."
+                )
+
+            parsed_source = parse_task_id(
+                carryover_from_task_id,
+                expected_prefix="D",
+            )
+            if parsed_source["date"] >= expected_date:
+                raise InvalidDailyDocumentError(
+                    f"Carryover Task {task_id} must reference an earlier Daily "
+                    "Task date."
+                )
+
+            if task["standing_task_id"] is not None:
+                raise InvalidDailyDocumentError(
+                    f"Carryover Task {task_id} must not retain `standing_task_id`."
+                )
+        elif carryover_from_task_id is not None:
+            raise InvalidDailyDocumentError(
+                f"Task {task_id} may use `carryover_from_task_id` only when "
+                "source='carryover'."
+            )
 
     if "retired_task_ids" not in document:
         # Pre-v1.0 compatibility: old V1 development files did not persist
@@ -418,6 +469,24 @@ def find_daily_by_standing_task_id(
     return None
 
 
+def find_daily_by_carryover_from_task_id(
+    tasks: list[dict[str, Any]],
+    carryover_from_task_id: str,
+) -> dict[str, Any] | None:
+    """Find the Daily Task already carried from one prior Daily Task ID."""
+    carryover_from_task_id = normalize_optional_task_relation(
+        carryover_from_task_id,
+        expected_prefix="D",
+        field_name="carryover_from_task_id",
+    )
+
+    for task in tasks:
+        if task.get("carryover_from_task_id") == carryover_from_task_id:
+            return task
+
+    return None
+
+
 def add_daily(
     *,
     title: str,
@@ -426,6 +495,7 @@ def add_daily(
     source: str = "manual",
     long_task_id: str | None = None,
     standing_task_id: str | None = None,
+    carryover_from_task_id: str | None = None,
     date: str | None = None,
     meta: dict[str, Any] | None = None,
     daily_dir: str | Path | None = None,
@@ -463,6 +533,52 @@ def add_daily(
         expected_prefix="S",
         field_name="standing_task_id",
     )
+    carryover_from_task_id = normalize_optional_task_relation(
+        carryover_from_task_id,
+        expected_prefix="D",
+        field_name="carryover_from_task_id",
+    )
+
+    if source == "carryover":
+        if carryover_from_task_id is None:
+            raise InvalidDailyDocumentError(
+                "source='carryover' requires `carryover_from_task_id`."
+            )
+
+        parsed_source = parse_task_id(
+            carryover_from_task_id,
+            expected_prefix="D",
+        )
+        if parsed_source["date"] >= target_date:
+            raise InvalidDailyDocumentError(
+                "`carryover_from_task_id` must reference an earlier Daily date."
+            )
+
+        if standing_task_id is not None:
+            raise InvalidDailyDocumentError(
+                "Carryover Tasks must not retain `standing_task_id`."
+            )
+    elif carryover_from_task_id is not None:
+        raise InvalidDailyDocumentError(
+            "`carryover_from_task_id` may be used only with source='carryover'."
+        )
+
+    if carryover_from_task_id is not None:
+        existing = find_daily_by_carryover_from_task_id(
+            document["tasks"],
+            carryover_from_task_id,
+        )
+
+        if existing is not None:
+            return (
+                {
+                    "created": False,
+                    "date": target_date,
+                    "path": str(path),
+                    "task": existing,
+                },
+                warnings,
+            )
 
     if standing_task_id is not None:
         existing = find_daily_by_standing_task_id(
@@ -505,6 +621,7 @@ def add_daily(
         "source": source,
         "long_task_id": long_task_id,
         "standing_task_id": standing_task_id,
+        "carryover_from_task_id": carryover_from_task_id,
         "created_at": timestamp,
         "updated_at": timestamp,
         "completed_at": None,

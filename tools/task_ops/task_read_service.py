@@ -27,7 +27,8 @@ This module:
 - normalizes missing files into `exists=False` when allow_missing=True;
 - preserves invalid/corrupt-data failures;
 - aggregates warning lists;
-- resolves one stable context date for read_task_context().
+- resolves one stable context date for read_task_context();
+- discovers the nearest previous Daily collection without parsing it directly.
 
 This module does not:
 - write Task data;
@@ -46,6 +47,7 @@ This module does not:
 
 from __future__ import annotations
 
+from datetime import date as date_type
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -68,7 +70,7 @@ from task_ops.standing_service import (
     read_standing,
     resolve_standing_path,
 )
-from task_ops.task_service import TaskServiceError, validate_date
+from task_ops.task_service import TaskReadError, TaskServiceError, validate_date
 
 
 class TaskReadServiceError(TaskServiceError):
@@ -348,6 +350,114 @@ def read_standing_tasks(
             "tasks": document["tasks"],
         },
         list(warnings),
+    )
+
+
+def read_previous_daily_tasks(
+    before: str | None = None,
+    *,
+    allow_missing: bool = True,
+    daily_dir: str | Path | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """
+    Read the nearest existing Daily collection strictly before one date.
+
+    Discovery uses Daily filenames only to locate candidate dates. Candidate
+    contents are always loaded and validated through read_daily_tasks().
+
+    Missing directory / no earlier Daily:
+    - allow_missing=True  -> exists=False
+    - allow_missing=False -> DailyFileNotFoundError for the immediately prior
+      calendar date path, preserving strict caller semantics.
+
+    Existing invalid candidate data is never skipped in favor of an older file.
+    """
+    allow_missing = _require_bool(
+        allow_missing,
+        field_name="allow_missing",
+    )
+    target_date = resolve_task_read_date(before)
+    target = date_type.fromisoformat(target_date)
+    directory = resolve_daily_path(
+        target_date,
+        daily_dir=daily_dir,
+    ).parent
+
+    candidate_dates: list[str] = []
+
+    if directory.exists():
+        try:
+            entries = list(directory.iterdir())
+        except OSError as exc:
+            raise TaskReadError(
+                f"Could not list Daily Task directory {directory}: {exc}"
+            ) from exc
+
+        for path in entries:
+            if not path.is_file() or path.suffix.lower() != ".json":
+                continue
+
+            stem = path.stem
+            if len(stem) != 8 or not stem.isdigit():
+                continue
+
+            try:
+                candidate = date_type(
+                    int(stem[0:4]),
+                    int(stem[4:6]),
+                    int(stem[6:8]),
+                )
+            except ValueError:
+                continue
+
+            if candidate < target:
+                candidate_dates.append(candidate.isoformat())
+
+    candidate_dates.sort(reverse=True)
+
+    for candidate_date in candidate_dates:
+        try:
+            daily, warnings = read_daily_tasks(
+                candidate_date,
+                allow_missing=False,
+                daily_dir=daily_dir,
+            )
+        except DailyFileNotFoundError:
+            # A file may disappear between directory listing and read. MuseAI V1
+            # assumes one writer, so continuing to the next candidate is enough.
+            continue
+
+        return (
+            {
+                **daily,
+                "before": target_date,
+            },
+            warnings,
+        )
+
+    if not allow_missing:
+        previous_calendar_date = date_type.fromordinal(
+            target.toordinal() - 1
+        ).isoformat()
+        # Reuse the authoritative Daily missing exception and path formatting.
+        read_daily_tasks(
+            previous_calendar_date,
+            allow_missing=False,
+            daily_dir=daily_dir,
+        )
+        raise AssertionError("unreachable")
+
+    return (
+        {
+            "kind": "daily",
+            "exists": False,
+            "before": target_date,
+            "date": None,
+            "path": None,
+            "schema_version": None,
+            "tasks": [],
+        },
+        [],
     )
 
 
