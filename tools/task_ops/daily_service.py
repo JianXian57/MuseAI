@@ -17,6 +17,7 @@ Envelope:
     kind = "daily"
     date = "YYYY-MM-DD"
     tasks = [...]
+    retired_task_ids = [...]
 
 Daily-specific Task fields:
     source
@@ -57,6 +58,7 @@ from task_ops.task_service import (
     generate_task_id,
     get_task_timestamp,
     normalize_optional_task_relation,
+    normalize_retired_task_ids,
     parse_task_id,
     read_json,
     validate_common_task,
@@ -135,6 +137,7 @@ def new_daily_document(date: str) -> dict[str, Any]:
         "kind": DAILY_KIND,
         "date": date,
         "tasks": [],
+        "retired_task_ids": [],
     }
 
 
@@ -255,6 +258,22 @@ def validate_daily_document(
                 raise InvalidDailyDocumentError(
                     f"Task {task_id} has an invalid `standing_task_id`: {exc}"
                 ) from exc
+
+    if "retired_task_ids" not in document:
+        # Pre-v1.0 compatibility: old V1 development files did not persist
+        # retirement tombstones. Missing means no retired IDs yet.
+        document["retired_task_ids"] = []
+
+    document["retired_task_ids"] = normalize_retired_task_ids(
+        document["retired_task_ids"],
+        expected_prefix="D",
+        expected_date=expected_date,
+        active_task_ids=(
+            task.get("id")
+            for task in tasks
+            if isinstance(task, dict)
+        ),
+    )
 
     return warnings
 
@@ -474,6 +493,7 @@ def add_daily(
         document["tasks"],
         prefix="D",
         date=target_date,
+        retired_task_ids=document["retired_task_ids"],
     )
 
     task = {
@@ -733,6 +753,7 @@ def remove_daily(
     index, task = find_task(document["tasks"], task_id)
 
     removed = document["tasks"].pop(index)
+    document["retired_task_ids"].append(str(removed["id"]))
     atomic_write_json(path, document)
 
     return (

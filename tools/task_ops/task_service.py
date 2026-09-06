@@ -14,6 +14,7 @@ Responsibilities
 - Atomically write Task JSON documents.
 - Parse and generate stable Task IDs.
 - Normalize optional cross-Task relation IDs.
+- Validate retired Task ID tombstones used to prevent ID reuse.
 - Find Tasks by ID.
 - Apply common status transitions.
 
@@ -352,17 +353,78 @@ def normalize_optional_task_relation(
     return str(parsed["id"])
 
 
+def normalize_retired_task_ids(
+    value: Any,
+    *,
+    expected_prefix: str,
+    expected_date: str | None = None,
+    active_task_ids: Iterable[str] = (),
+) -> list[str]:
+    """
+    Validate and canonicalize envelope-level retired Task ID tombstones.
+
+    Retired IDs preserve identity after physical deletion without retaining
+    deleted Task content. They are used only to prevent future ID reuse.
+
+    `expected_date` is useful for date-scoped collections such as one Daily
+    document. Standing collections omit it because their Tasks may have been
+    created on different dates.
+    """
+    if not isinstance(value, list):
+        raise InvalidTaskDocumentError(
+            "`retired_task_ids` must be an array."
+        )
+
+    active_ids = {
+        task_id
+        for task_id in active_task_ids
+        if isinstance(task_id, str)
+    }
+    seen: set[str] = set()
+    normalized: list[str] = []
+
+    for item in value:
+        if not isinstance(item, str):
+            raise InvalidTaskDocumentError(
+                "`retired_task_ids` entries must be Task ID strings."
+            )
+
+        parsed = parse_task_id(
+            item,
+            expected_prefix=expected_prefix,
+            expected_date=expected_date,
+        )
+        task_id = str(parsed["id"])
+
+        if task_id in seen:
+            raise DuplicateTaskIdError(
+                f"Duplicate retired Task ID: {task_id}"
+            )
+
+        if task_id in active_ids:
+            raise DuplicateTaskIdError(
+                f"Task ID appears in both active and retired sets: {task_id}"
+            )
+
+        seen.add(task_id)
+        normalized.append(task_id)
+
+    return normalized
+
+
 def generate_task_id(
     tasks: list[dict[str, Any]],
     *,
     prefix: str,
     date: str,
+    retired_task_ids: Iterable[str] | None = None,
 ) -> str:
     """
     Generate the next non-reused Task ID for one kind/date.
 
-    Sequence numbers are based on the maximum existing sequence, never on
-    len(tasks), so deleting a Task does not cause an old ID to be reused.
+    The sequence is based on the maximum ID ever observed in the active Task
+    set or the retired-ID tombstones for the same kind/date. This guarantees
+    that physical deletion cannot make an old Task ID available again.
     """
     if prefix not in {"D", "L", "S"}:
         raise InvalidTaskIdError(
@@ -397,9 +459,17 @@ def generate_task_id(
         ):
             maximum = max(maximum, int(match.group("sequence")))
 
+    for retired_task_id in retired_task_ids or ():
+        parsed = parse_task_id(
+            retired_task_id,
+            expected_prefix=prefix,
+        )
+
+        if parsed["date"] == date:
+            maximum = max(maximum, int(parsed["sequence"]))
+
     next_sequence = maximum + 1
     return f"{prefix}{compact_date}-{next_sequence:03d}"
-
 
 def find_task(
     tasks: list[dict[str, Any]],

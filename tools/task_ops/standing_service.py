@@ -16,6 +16,7 @@ Envelope:
     schema_version = "1.0"
     kind = "standing"
     tasks = [...]
+    retired_task_ids = [...]
 
 Standing-specific fields:
     enabled
@@ -69,6 +70,7 @@ from task_ops.task_service import (
     generate_task_id,
     get_task_timestamp,
     normalize_optional_task_relation,
+    normalize_retired_task_ids,
     parse_task_id,
     read_json,
     validate_common_task,
@@ -165,6 +167,7 @@ def new_standing_document() -> dict[str, Any]:
         "schema_version": STANDING_SCHEMA_VERSION,
         "kind": STANDING_KIND,
         "tasks": [],
+        "retired_task_ids": [],
     }
 
 
@@ -448,6 +451,21 @@ def validate_standing_document(
                     "`last_generated_date`."
                 ) from exc
 
+    if "retired_task_ids" not in document:
+        # Pre-v1.0 compatibility: old V1 development files did not persist
+        # retirement tombstones. Missing means no retired IDs yet.
+        document["retired_task_ids"] = []
+
+    document["retired_task_ids"] = normalize_retired_task_ids(
+        document["retired_task_ids"],
+        expected_prefix="S",
+        active_task_ids=(
+            task.get("id")
+            for task in tasks
+            if isinstance(task, dict)
+        ),
+    )
+
     return warnings
 
 
@@ -608,6 +626,7 @@ def add_standing(
         document["tasks"],
         prefix="S",
         date=creation_date,
+        retired_task_ids=document["retired_task_ids"],
     )
 
     task = {
@@ -1012,6 +1031,7 @@ def remove_standing(
     index, task = find_task(document["tasks"], task_id)
 
     removed = document["tasks"].pop(index)
+    document["retired_task_ids"].append(str(removed["id"]))
     atomic_write_json(path, document)
 
     return (
