@@ -11,13 +11,13 @@ Responsibilities
 ----------------
 - Parse root-level command-line arguments.
 - Register command modules and dispatch parsed handlers.
-- Route non-Task requests to public Tool modules under `tools/`.
+- Register Time, Log, and Task CLI modules under `tools/`.
 - Provide one unified JSON output.
 - Attach execution purpose context.
 - Record START / SUCCESS / FAILED lifecycle logs for normal Tool operations.
 - Set a meaningful process exit code.
 
-Business logic must remain inside Tool/Service modules. Task CLI definitions belong in `tools/task_ops/task_cli.py`.
+Business logic must remain inside Tool/Service modules. Feature-specific CLI definitions belong in their corresponding `*_cli.py` adapters.
 
 Logging policy
 --------------
@@ -108,95 +108,6 @@ def _failure_description(result: dict[str, Any]) -> str:
     return f"FAILED {code}: {message}"
 
 
-def run_time_current(_: argparse.Namespace) -> dict[str, Any]:
-    operation = "time.current"
-
-    try:
-        from time_ops.time_tool import current_time
-    except Exception as exc:
-        return failure(
-            operation,
-            "TOOL_NOT_AVAILABLE",
-            "The time Tool is not available.",
-            f"{type(exc).__name__}: {exc}",
-        )
-
-    try:
-        result = current_time()
-    except Exception as exc:
-        return failure(
-            operation,
-            "TOOL_EXECUTION_FAILED",
-            "The time Tool failed unexpectedly.",
-            f"{type(exc).__name__}: {exc}",
-        )
-
-    return normalize_tool_result(operation, result)
-
-
-def run_log_write(args: argparse.Namespace) -> dict[str, Any]:
-    operation = "log.write"
-
-    try:
-        from log_ops.log_tool import write_log
-    except Exception as exc:
-        return failure(
-            operation,
-            "TOOL_NOT_AVAILABLE",
-            "The log Tool is not available.",
-            f"{type(exc).__name__}: {exc}",
-        )
-
-    try:
-        result = write_log(
-            purpose=args.purpose,
-            operation=args.logged_operation,
-            description=args.description,
-        )
-    except Exception as exc:
-        return failure(
-            operation,
-            "TOOL_EXECUTION_FAILED",
-            "The log Tool failed unexpectedly.",
-            f"{type(exc).__name__}: {exc}",
-        )
-
-    return normalize_tool_result(operation, result)
-
-
-def run_log_read(args: argparse.Namespace) -> dict[str, Any]:
-    operation = "log.read"
-
-    try:
-        from log_ops.log_tool import read_log
-    except Exception as exc:
-        return failure(
-            operation,
-            "TOOL_NOT_AVAILABLE",
-            "The log Tool is not available.",
-            f"{type(exc).__name__}: {exc}",
-        )
-
-    try:
-        result = read_log(
-            month=args.month,
-            purpose=args.entry_purpose,
-            operation=args.logged_operation,
-            status=args.status,
-            tail=args.tail,
-        )
-    except Exception as exc:
-        return failure(
-            operation,
-            "TOOL_EXECUTION_FAILED",
-            "The log Tool failed unexpectedly.",
-            f"{type(exc).__name__}: {exc}",
-        )
-
-    return normalize_tool_result(operation, result)
-
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="muse",
@@ -218,93 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="<module>",
     )
 
-    time_parser = modules.add_parser(
-        "time",
-        help="Date and time operations.",
-    )
-    time_commands = time_parser.add_subparsers(
-        dest="command",
-        metavar="<command>",
-    )
-    time_current = time_commands.add_parser(
-        "current",
-        help="Return MuseAI's current configured local time context.",
-    )
-    time_current.set_defaults(
-        handler=run_time_current,
-        route_operation="time.current",
-        auto_log=True,
-    )
-
-    log_parser = modules.add_parser(
-        "log",
-        help="Read or write MuseAI log entries.",
-    )
-    log_commands = log_parser.add_subparsers(
-        dest="command",
-        metavar="<command>",
-    )
-
-    log_write = log_commands.add_parser(
-        "write",
-        help="Write one explicit MuseAI log entry.",
-    )
-    log_write.add_argument(
-        "--operation",
-        dest="logged_operation",
-        required=True,
-        help="Logical operation identifier to store in the log.",
-    )
-    log_write.add_argument(
-        "--description",
-        required=True,
-        help=(
-            "Log description. Prefer English and begin with "
-            "START, SUCCESS, FAILED, INFO, or WARNING."
-        ),
-    )
-    log_write.set_defaults(
-        handler=run_log_write,
-        route_operation="log.write",
-        auto_log=False,
-    )
-
-    log_read = log_commands.add_parser(
-        "read",
-        help="Read and optionally filter one monthly MuseAI log.",
-    )
-    log_read.add_argument(
-        "--month",
-        help="Calendar month in YYYYMM format. Defaults to current month.",
-    )
-    log_read.add_argument(
-        "--entry-purpose",
-        help="Exact PURPOSE filter for stored log entries.",
-    )
-    log_read.add_argument(
-        "--operation",
-        dest="logged_operation",
-        help="Exact OPERATION filter for stored log entries.",
-    )
-    log_read.add_argument(
-        "--status",
-        choices=["START", "SUCCESS", "FAILED", "INFO", "WARNING"],
-        help="Filter by DESCRIPTION status prefix.",
-    )
-    log_read.add_argument(
-        "--tail",
-        type=int,
-        help="Return only the last N matching entries.",
-    )
-    log_read.set_defaults(
-        handler=run_log_read,
-        route_operation="log.read",
-        auto_log=False,
-    )
-
-
+    from time_ops.time_cli import register_time_cli
+    from log_ops.log_cli import register_log_cli
     from task_ops.task_cli import register_task_cli
 
+    register_time_cli(modules)
+    register_log_cli(modules)
     register_task_cli(modules)
 
     return parser
