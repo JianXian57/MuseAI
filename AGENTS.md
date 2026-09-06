@@ -102,6 +102,26 @@ Do not duplicate the full Task business manual in this control file.
 
 The current Task CLI and Tool source remain authoritative for exact command availability and argument syntax.
 
+## Daily Report Skill
+
+Daily Report-specific rendering and interpretation rules are maintained in:
+
+`.zcode/skills/daily-report/SKILL.md`
+
+When the user asks for a daily report, daily status summary, or overview of today's Task state, read and follow that Skill before rendering the user-facing report.
+
+Use the public Report interface as the primary deterministic fact source:
+
+`python muse.py report daily`
+
+For an explicit report date:
+
+`python muse.py report daily --date YYYY-MM-DD`
+
+Do not duplicate the Daily Report Snapshot contract, Task interpretation rules, or presentation logic in this control file.
+
+The current Report CLI and Tool source remain authoritative for exact command availability, arguments, warnings, and error behavior.
+
 # Conflict Priority
 
 When requirements conflict, follow this order from highest priority to lowest:
@@ -165,6 +185,7 @@ Use public Tools for deterministic runtime work.
 Normal public entry points include:
 
 - `python muse.py task ...`
+- `python muse.py report ...`
 - `python muse.py time current`
 - `python muse.py log ...`
 
@@ -206,6 +227,19 @@ When `ok` is `false`:
 - use the returned error code and details when explaining the failure.
 
 Warnings do not automatically convert success into failure.
+
+## Runtime Environment Mutation Rule
+
+A normal runtime request does not authorize Main to modify the Python or system environment.
+
+If a Tool fails because a dependency or environment prerequisite is missing:
+
+- diagnose the failure when practical;
+- report the missing prerequisite or required repair;
+- do not run `pip install`, `conda install`, package-manager commands, or other environment-changing commands unless the user explicitly authorizes setup or repair;
+- do not hide the original Tool failure by silently changing the environment and retrying.
+
+Project dependency declarations such as `requirements.txt` should contain known runtime dependencies so setup can be performed explicitly rather than opportunistically during a normal runtime request.
 
 ## Time Rule
 
@@ -394,6 +428,34 @@ For Daily, Long, or Standing Task requests:
 6. inspect every Tool Result before performing dependent mutations;
 7. do not bypass Tool ownership with direct Task JSON edits;
 8. report the resulting Task state rather than the intended state.
+
+## Daily Report Runtime Process
+
+For a Daily Report request:
+
+1. read `.zcode/skills/daily-report/SKILL.md`;
+2. when the user requests the current day's report without supplying another date, first run `python muse.py task maintenance apply`;
+3. inspect the Maintenance Tool Result and continue only if the current-day Task state is valid for reporting;
+4. then use `python muse.py report daily` as the primary deterministic report source;
+5. when the user explicitly requests another report date, use `python muse.py report daily --date YYYY-MM-DD` and do not automatically run Maintenance for that historical or future date unless the user explicitly requests it or another authorized workflow owns that mutation;
+6. inspect the `report.daily` Tool Result before presenting report facts;
+7. render the user-facing report from the returned Snapshot according to the Skill and applicable Template;
+8. do not re-read raw Task JSON merely to recreate Snapshot facts;
+9. do not independently recalculate Standing recurrence, carryover state, Long deadline groups, or other deterministic Report facts already provided by the Report Tool;
+10. do not mutate Task Data as part of Report rendering beyond the explicit current-day Maintenance step above;
+11. surface meaningful Report warnings instead of silently treating them as normal state.
+
+For an ordinary current-day Daily Report request, Main owns this orchestration:
+
+```text
+Task Maintenance apply
+→ Daily Report
+→ Main renders the report
+```
+
+`report.daily` itself remains strictly read-only and must not silently run Task Maintenance.
+
+Do not use automatic Maintenance for an explicitly requested historical or future report date merely to make that report look initialized.
 
 ## Development Process
 

@@ -11,7 +11,7 @@ Responsibilities
 ----------------
 - Parse root-level command-line arguments.
 - Register command modules and dispatch parsed handlers.
-- Register Time, Log, and Task CLI modules under `tools/`.
+- Register Time, Log, Task, and Report CLI modules under `tools/`.
 - Provide one unified JSON output.
 - Attach execution purpose context.
 - Record START / SUCCESS / FAILED lifecycle logs for normal Tool operations.
@@ -132,10 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
     from time_ops.time_cli import register_time_cli
     from log_ops.log_cli import register_log_cli
     from task_ops.task_cli import register_task_cli
+    from report_ops.report_cli import register_report_cli
 
     register_time_cli(modules)
     register_log_cli(modules)
     register_task_cli(modules)
+    register_report_cli(modules)
 
     return parser
 
