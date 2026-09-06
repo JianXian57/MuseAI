@@ -25,9 +25,11 @@ Boundary
 
 Idempotence / recovery
 ----------------------
-Carryover idempotence is keyed by Daily.carryover_from_task_id.
-Standing occurrence idempotence is keyed by Daily.standing_task_id plus
-Standing.last_generated_date.
+Carryover idempotence is keyed by Daily.carryover_from_task_id plus retired
+carryover provenance tombstones.
+Standing consistency is keyed by Daily.standing_task_id plus
+Standing.last_generated_date; either side can be repaired when only one write
+survived.
 
 Re-running apply after a partial failure is therefore safe under MuseAI V1's
 single-writer assumption.
@@ -67,7 +69,11 @@ def _merge_warnings(*groups: Iterable[str]) -> list[str]:
 
 def _target_daily_maps(
     daily: dict[str, Any],
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+    set[str],
+]:
     carryover_map: dict[str, dict[str, Any]] = {}
     standing_map: dict[str, dict[str, Any]] = {}
 
@@ -80,7 +86,13 @@ def _target_daily_maps(
         if isinstance(standing_task_id, str) and standing_task_id:
             standing_map[standing_task_id] = task
 
-    return carryover_map, standing_map
+    retired_carryover_sources = {
+        str(value)
+        for value in daily.get("retired_carryover_from_task_ids", [])
+        if isinstance(value, str) and value
+    }
+
+    return carryover_map, standing_map, retired_carryover_sources
 
 
 def _build_daily_maintenance_plan(
@@ -107,7 +119,11 @@ def _build_daily_maintenance_plan(
         standing_dir=standing_dir,
     )
 
-    carryover_map, standing_map = _target_daily_maps(target_daily)
+    (
+        carryover_map,
+        standing_map,
+        retired_carryover_sources,
+    ) = _target_daily_maps(target_daily)
 
     carryover_items: list[dict[str, Any]] = []
     carryover_actions: list[dict[str, Any]] = []
@@ -118,13 +134,15 @@ def _build_daily_maintenance_plan(
 
         source_task_id = str(source_task["id"])
         existing = carryover_map.get(source_task_id)
-        needs_create = existing is None
+        retired = source_task_id in retired_carryover_sources
+        needs_create = existing is None and not retired
 
         item = {
             "source_task_id": source_task_id,
             "source_date": previous_daily.get("date"),
             "title": source_task.get("title"),
-            "already_carried": not needs_create,
+            "already_carried": existing is not None,
+            "retired": retired,
             "target_task_id": None if existing is None else existing.get("id"),
             "needs_create": needs_create,
         }
@@ -167,22 +185,28 @@ def _build_daily_maintenance_plan(
                 f"backward from {last_generated_date} to {target_date}."
             )
 
-        if generated:
+        if generated and existing is not None:
             already_generated_count += 1
             standing_items.append(
                 {
                     "standing_task_id": standing_task_id,
                     "title": standing_task.get("title"),
                     "state": "already_generated",
-                    "daily_task_id": None if existing is None else existing.get("id"),
+                    "daily_task_id": existing.get("id"),
                     "needs_daily": False,
                     "needs_mark_generated": False,
                 }
             )
             continue
 
-        needs_daily = existing is None
-        state = "due" if needs_daily else "recovery_mark_required"
+        if generated and existing is None:
+            needs_daily = True
+            needs_mark_generated = False
+            state = "recovery_daily_required"
+        else:
+            needs_daily = existing is None
+            needs_mark_generated = True
+            state = "due" if needs_daily else "recovery_mark_required"
 
         standing_items.append(
             {
@@ -191,12 +215,17 @@ def _build_daily_maintenance_plan(
                 "state": state,
                 "daily_task_id": None if existing is None else existing.get("id"),
                 "needs_daily": needs_daily,
-                "needs_mark_generated": True,
+                "needs_mark_generated": needs_mark_generated,
             }
         )
         standing_actions.append(
             {
                 "standing_task": standing_task,
+                "needs_daily": needs_daily,
+                "needs_mark_generated": needs_mark_generated,
+                "existing_daily_task_id": (
+                    None if existing is None else existing.get("id")
+                ),
             }
         )
 
@@ -218,7 +247,12 @@ def _build_daily_maintenance_plan(
         "carryover": {
             "pending_count": len(carryover_items),
             "create_count": len(carryover_actions),
-            "already_carried_count": len(carryover_items) - len(carryover_actions),
+            "already_carried_count": sum(
+                1 for item in carryover_items if item["already_carried"]
+            ),
+            "retired_count": sum(
+                1 for item in carryover_items if item["retired"]
+            ),
             "items": carryover_items,
         },
         "standing": {
@@ -319,31 +353,40 @@ def apply_daily_maintenance(
 
     for action in internal_plan["standing_actions"]:
         standing_task = action["standing_task"]
-        payload = build_daily_payload(standing_task)
+        needs_daily = bool(action["needs_daily"])
+        needs_mark_generated = bool(action["needs_mark_generated"])
 
-        add_result, add_warnings = add_daily(
-            **payload,
-            carryover_from_task_id=None,
-            date=target_date,
-            daily_dir=daily_dir,
-        )
-        write_warnings = _merge_warnings(write_warnings, add_warnings)
+        daily_created = False
+        generation_mark_changed = False
+        daily_task_id = action.get("existing_daily_task_id")
 
-        mark_result, mark_warnings = mark_standing_generated(
-            task_id=standing_task["id"],
-            date=target_date,
-            standing_dir=standing_dir,
-        )
-        write_warnings = _merge_warnings(write_warnings, mark_warnings)
+        if needs_daily:
+            payload = build_daily_payload(standing_task)
+            add_result, add_warnings = add_daily(
+                **payload,
+                carryover_from_task_id=None,
+                date=target_date,
+                daily_dir=daily_dir,
+            )
+            write_warnings = _merge_warnings(write_warnings, add_warnings)
+            daily_created = bool(add_result.get("created"))
+            daily_task_id = add_result["task"]["id"]
 
-        daily_created = bool(add_result.get("created"))
-        generation_mark_changed = bool(mark_result.get("changed"))
+        if needs_mark_generated:
+            mark_result, mark_warnings = mark_standing_generated(
+                task_id=standing_task["id"],
+                date=target_date,
+                standing_dir=standing_dir,
+            )
+            write_warnings = _merge_warnings(write_warnings, mark_warnings)
+            generation_mark_changed = bool(mark_result.get("changed"))
+
         changed = changed or daily_created or generation_mark_changed
 
         standing_results.append(
             {
                 "standing_task_id": standing_task["id"],
-                "daily_task_id": add_result["task"]["id"],
+                "daily_task_id": daily_task_id,
                 "daily_created": daily_created,
                 "generation_mark_changed": generation_mark_changed,
             }

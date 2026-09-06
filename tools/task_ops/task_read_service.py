@@ -136,6 +136,7 @@ def _daily_missing_result(
         "path": str(path),
         "schema_version": None,
         "tasks": [],
+        "retired_carryover_from_task_ids": [],
     }
 
 
@@ -220,6 +221,9 @@ def read_daily_tasks(
             "path": result["path"],
             "schema_version": document["schema_version"],
             "tasks": document["tasks"],
+            "retired_carryover_from_task_ids": list(
+                document["retired_carryover_from_task_ids"]
+            ),
         },
         list(warnings),
     )
@@ -456,6 +460,7 @@ def read_previous_daily_tasks(
             "path": None,
             "schema_version": None,
             "tasks": [],
+            "retired_carryover_from_task_ids": [],
         },
         [],
     )

@@ -18,6 +18,7 @@ Envelope:
     date = "YYYY-MM-DD"
     tasks = [...]
     retired_task_ids = [...]
+    retired_carryover_from_task_ids = [...]
 
 Daily-specific Task fields:
     source
@@ -29,6 +30,8 @@ Daily-specific Task fields:
 `standing_task_id` is an optional relation to one Standing Task occurrence.
 `carryover_from_task_id` records the immediately previous Daily occurrence from
 which a carryover Task was created.
+`retired_carryover_from_task_ids` records removed carryover provenance so an
+intentional deletion is not silently recreated by later maintenance.
 
 This service validates relation ID formats only; it does not require referenced
 Long, Standing, or prior Daily Tasks to exist, so Daily stays independent from
@@ -146,6 +149,7 @@ def new_daily_document(date: str) -> dict[str, Any]:
         "date": date,
         "tasks": [],
         "retired_task_ids": [],
+        "retired_carryover_from_task_ids": [],
     }
 
 
@@ -212,6 +216,7 @@ def validate_daily_document(
     validate_unique_task_ids(tasks)
 
     warnings: list[str] = []
+    active_carryover_from_task_ids: list[str] = []
 
     for task in tasks:
         try:
@@ -304,6 +309,13 @@ def validate_daily_document(
                 raise InvalidDailyDocumentError(
                     f"Carryover Task {task_id} must not retain `standing_task_id`."
                 )
+
+            if carryover_from_task_id in active_carryover_from_task_ids:
+                raise InvalidDailyDocumentError(
+                    f"Duplicate `carryover_from_task_id` in Daily document: "
+                    f"{carryover_from_task_id}."
+                )
+            active_carryover_from_task_ids.append(carryover_from_task_id)
         elif carryover_from_task_id is not None:
             raise InvalidDailyDocumentError(
                 f"Task {task_id} may use `carryover_from_task_id` only when "
@@ -324,6 +336,64 @@ def validate_daily_document(
             for task in tasks
             if isinstance(task, dict)
         ),
+    )
+
+    if "retired_carryover_from_task_ids" not in document:
+        # Pre-v1.0 compatibility: this provenance tombstone field was added
+        # after carryover support. Missing means no removed carryovers yet.
+        document["retired_carryover_from_task_ids"] = []
+
+    retired_carryover_from_task_ids = document[
+        "retired_carryover_from_task_ids"
+    ]
+    if not isinstance(retired_carryover_from_task_ids, list):
+        raise InvalidDailyDocumentError(
+            "Daily document `retired_carryover_from_task_ids` must be an array."
+        )
+
+    normalized_retired_carryover_sources: list[str] = []
+    for value in retired_carryover_from_task_ids:
+        try:
+            normalized = normalize_optional_task_relation(
+                value,
+                expected_prefix="D",
+                field_name="retired_carryover_from_task_ids",
+            )
+        except InvalidTaskIdError as exc:
+            raise InvalidDailyDocumentError(
+                "Daily document contains an invalid retired carryover source ID: "
+                f"{exc}"
+            ) from exc
+
+        if normalized is None:
+            raise InvalidDailyDocumentError(
+                "Daily document retired carryover source IDs must not be null."
+            )
+
+        parsed_source = parse_task_id(
+            normalized,
+            expected_prefix="D",
+        )
+        if parsed_source["date"] >= expected_date:
+            raise InvalidDailyDocumentError(
+                "Retired carryover source IDs must reference an earlier Daily date."
+            )
+
+        if normalized in normalized_retired_carryover_sources:
+            raise InvalidDailyDocumentError(
+                f"Duplicate retired carryover source ID: {normalized}."
+            )
+
+        if normalized in active_carryover_from_task_ids:
+            raise InvalidDailyDocumentError(
+                f"Carryover source ID {normalized} cannot be both active and retired "
+                "in the same Daily document."
+            )
+
+        normalized_retired_carryover_sources.append(normalized)
+
+    document["retired_carryover_from_task_ids"] = (
+        normalized_retired_carryover_sources
     )
 
     return warnings
@@ -564,6 +634,12 @@ def add_daily(
         )
 
     if carryover_from_task_id is not None:
+        if carryover_from_task_id in document["retired_carryover_from_task_ids"]:
+            raise InvalidDailyDocumentError(
+                f"Carryover source {carryover_from_task_id} was previously removed "
+                f"from {target_date} and must not be recreated."
+            )
+
         existing = find_daily_by_carryover_from_task_id(
             document["tasks"],
             carryover_from_task_id,
@@ -732,6 +808,11 @@ def update_daily(
         requested["long_task_id"] = None
 
     if standing_task_id is not None:
+        if task.get("source") == "carryover":
+            raise InvalidDailyDocumentError(
+                "Carryover Tasks must not be assigned `standing_task_id`."
+            )
+
         standing_task_id = normalize_optional_task_relation(
             standing_task_id,
             expected_prefix="S",
@@ -871,6 +952,19 @@ def remove_daily(
 
     removed = document["tasks"].pop(index)
     document["retired_task_ids"].append(str(removed["id"]))
+
+    retired_carryover_source = removed.get("carryover_from_task_id")
+    if (
+        removed.get("source") == "carryover"
+        and isinstance(retired_carryover_source, str)
+        and retired_carryover_source
+        and retired_carryover_source
+        not in document["retired_carryover_from_task_ids"]
+    ):
+        document["retired_carryover_from_task_ids"].append(
+            retired_carryover_source
+        )
+
     atomic_write_json(path, document)
 
     return (
