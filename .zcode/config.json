@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "process",
+              "command": "python",
+              "enabled": true,
+              "statusMessage": "正在初始化今日任务",
+              "args": [
+                "muse.py",
+                "--purpose",
+                "DailyInitHook",
+                "init",
+                "daily"
+              ],
+              "timeoutMs": 15000
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

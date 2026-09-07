@@ -186,6 +186,7 @@ Normal public entry points include:
 
 - `python muse.py task ...`
 - `python muse.py report ...`
+- `python muse.py init ...`
 - `python muse.py time current`
 - `python muse.py log ...`
 
@@ -240,6 +241,20 @@ If a Tool fails because a dependency or environment prerequisite is missing:
 - do not hide the original Tool failure by silently changing the environment and retrying.
 
 Project dependency declarations such as `requirements.txt` should contain known runtime dependencies so setup can be performed explicitly rather than opportunistically during a normal runtime request.
+
+## Daily Initialization Rule
+
+Daily Task initialization is a deterministic runtime capability exposed through:
+
+`python muse.py init daily`
+
+Its responsibility is to prepare the current Daily Task state by reusing the existing Task Maintenance logic.
+
+Main and host integrations must not reimplement carryover, Standing recurrence, cross-day detection, or Daily creation logic outside this public initialization path.
+
+A host may invoke `init.daily` automatically before normal user interaction, for example from a prompt-submission hook. The host hook owns only **when** initialization is triggered; MuseAI owns **what** initialization does.
+
+Repeated `init.daily` execution is expected and must rely on the Tool's idempotent behavior rather than a separate "already initialized today" flag maintained by Main or the host.
 
 ## Time Rule
 
@@ -416,6 +431,27 @@ For a normal runtime request:
 9. continue only when downstream prerequisites remain valid;
 10. report the final actual state.
 
+## Daily Initialization Runtime Process
+
+For deterministic Daily initialization:
+
+1. use `python muse.py init daily`;
+2. inspect the `init.daily` Tool Result;
+3. treat `changed=false` as a normal successful no-op, not as a failure;
+4. do not replace the Init Tool with direct `task maintenance check/apply` orchestration when `init.daily` is available;
+5. do not read or mutate Task JSON directly to emulate initialization;
+6. do not create an additional per-day initialization state file or flag merely to suppress repeated calls.
+
+For host-triggered initialization, the intended boundary is:
+
+```text
+Host trigger
+→ python muse.py init daily
+→ continue normal interaction
+```
+
+The host must not contain Task business logic.
+
 ## Task Runtime Process
 
 For Daily, Long, or Standing Task requests:
@@ -434,28 +470,30 @@ For Daily, Long, or Standing Task requests:
 For a Daily Report request:
 
 1. read `.zcode/skills/daily-report/SKILL.md`;
-2. when the user requests the current day's report without supplying another date, first run `python muse.py task maintenance apply`;
-3. inspect the Maintenance Tool Result and continue only if the current-day Task state is valid for reporting;
+2. when the user requests the current day's report without supplying another date, first run `python muse.py init daily`;
+3. inspect the `init.daily` Tool Result and continue only if the current-day Task state is valid for reporting;
 4. then use `python muse.py report daily` as the primary deterministic report source;
-5. when the user explicitly requests another report date, use `python muse.py report daily --date YYYY-MM-DD` and do not automatically run Maintenance for that historical or future date unless the user explicitly requests it or another authorized workflow owns that mutation;
+5. when the user explicitly requests another report date, use `python muse.py report daily --date YYYY-MM-DD` and do not automatically initialize that historical or future date unless the user explicitly requests it or another authorized workflow owns that mutation;
 6. inspect the `report.daily` Tool Result before presenting report facts;
 7. render the user-facing report from the returned Snapshot according to the Skill and applicable Template;
 8. do not re-read raw Task JSON merely to recreate Snapshot facts;
 9. do not independently recalculate Standing recurrence, carryover state, Long deadline groups, or other deterministic Report facts already provided by the Report Tool;
-10. do not mutate Task Data as part of Report rendering beyond the explicit current-day Maintenance step above;
+10. do not mutate Task Data as part of Report rendering beyond the explicit current-day `init.daily` step above;
 11. surface meaningful Report warnings instead of silently treating them as normal state.
 
 For an ordinary current-day Daily Report request, Main owns this orchestration:
 
 ```text
-Task Maintenance apply
+Daily Init
 → Daily Report
 → Main renders the report
 ```
 
-`report.daily` itself remains strictly read-only and must not silently run Task Maintenance.
+A host prompt hook may already have run `init.daily`; Main may still call it again because the operation is intentionally idempotent.
 
-Do not use automatic Maintenance for an explicitly requested historical or future report date merely to make that report look initialized.
+`report.daily` itself remains strictly read-only and must not silently run Daily Init or Task Maintenance.
+
+Do not automatically initialize an explicitly requested historical or future report date merely to make that report look initialized.
 
 ## Development Process
 
