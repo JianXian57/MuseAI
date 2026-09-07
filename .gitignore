@@ -18,5 +18,8 @@ __pycache__
 # renew
 /.renew
 
+# review
+/.review
+
 # local test
 /.test
