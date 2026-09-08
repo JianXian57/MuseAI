@@ -1,0 +1,6 @@
+schema_version: '1.0'
+functions:
+  example-function:
+    name: Example Function
+    description: Reference Custom Function package for MuseAI users.
+    enabled: true

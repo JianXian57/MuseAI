@@ -9,17 +9,25 @@
 !/data/.gitkeep
 !/data/**/.gitkeep
 
+# Custom function
+/func/**
+!/func/.gitkeep
+!/func/example-function/
+!/func/example-function/**
+
 # Secretary
 /.env
 
 # Cache
 __pycache__
 
-# renew
+# local develop
+
+## test
+/.test
+
+## renew
 /.renew
 
-# review
+## review
 /.review
-
-# local test
-/.test

@@ -1,0 +1,8 @@
+schema_version: "1.0"
+
+process:
+  command: python
+  args:
+    - script/main.py
+  cwd: .
+  timeout_seconds: null
