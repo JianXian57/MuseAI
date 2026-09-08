@@ -16,6 +16,7 @@ Use the following component model consistently:
 
 - **Tool / Program** — deterministic or mechanical execution.
 - **Service / Common** — internal deterministic implementation shared by Tools; not normally a public execution surface.
+- **Query** — general read-only fast information-access layer for high-frequency retrieval, filtering, aggregation, deterministic derived facts, and direct relationships.
 - **Skill** — reusable method, workflow, or style that teaches the current Agent how to perform a class of work.
 - **Main Agent** — intent understanding, orchestration, ordinary reasoning, small judgment, and final user interaction.
 - **Sub-Agent** — independently delegated cognitive work that benefits from context isolation, specialization, or parallel reasoning.
@@ -35,7 +36,7 @@ The Main Agent owns:
 
 - understanding natural-language user intent;
 - distinguishing runtime use, project development, and discussion;
-- selecting the correct Tool, Skill, or Sub-Agent;
+- selecting the correct Tool, Query, Skill, or Sub-Agent;
 - sequencing dependent operations;
 - passing required context between components;
 - interpreting Tool results;
@@ -122,6 +123,62 @@ Do not duplicate the Daily Report Snapshot contract, Task interpretation rules, 
 
 The current Report CLI and Tool source remain authoritative for exact command availability, arguments, warnings, and error behavior.
 
+## Query Layer
+
+Query is MuseAI's general read-only fast information-access layer.
+
+Use Query when the user primarily needs deterministic information retrieval, filtering, aggregation, compact derived facts, or direct relationships and a suitable Query operation exists.
+
+Current Task Query public entry points include:
+
+- `python muse.py query task daily`
+- `python muse.py query task long`
+- `python muse.py query task standing`
+- `python muse.py query task related`
+- `python muse.py query task overview`
+
+Query must remain strictly read-only.
+
+Query must not:
+
+- mutate Task or other business Data;
+- silently run Daily Init, Task Maintenance, refresh, repair, or other write operations;
+- replace a Domain Tool for mutations;
+- become an alternate public write path around Tool ownership.
+
+For information requests, prefer a suitable Query when it can answer the request compactly. If Query is insufficient, use the relevant public Domain Tool.
+
+For mutation requests, use the Domain Tool. If the mutation target is ambiguous, Query may first identify candidates; Main must then decide, clarify, or invoke the correct mutation Tool.
+
+Normal runtime Main must not bypass Query or Tool boundaries by calling Query Services or Domain Services directly.
+
+## Custom Function Skill
+
+Custom Function-specific installation, registration, selection, and user-interaction rules are maintained in:
+
+`.zcode/skills/custom-function/SKILL.md`
+
+When the user's request involves adding, installing, registering, inspecting, running, enabling, disabling, updating, or unregistering a Custom Function, read and follow that Skill.
+
+The public Function interface is:
+
+- `python muse.py function list`
+- `python muse.py function get <function-id>`
+- `python muse.py function run <function-id>`
+- `python muse.py function register <function-id> --name "..." --description "..."`
+- `python muse.py function update <function-id> ...`
+- `python muse.py function unregister <function-id>`
+- `python muse.py function enable <function-id>`
+- `python muse.py function disable <function-id>`
+
+Custom Function discovery is user-driven, not filesystem-driven.
+
+Main must not scan `func/` to auto-discover Functions or infer missing Function ID, name, description, purpose, or intended behavior from filenames, README files, comments, or scripts.
+
+When registering a Function, the user provides the Function Package and semantic identity information. Main uses the public Function Tool to validate and register the explicitly identified package.
+
+Do not duplicate the full Custom Function package/runtime contract in this control file. The current Function Tool / Service source and the Custom Function Skill remain authoritative for exact behavior.
+
 # Conflict Priority
 
 When requirements conflict, follow this order from highest priority to lowest:
@@ -167,7 +224,7 @@ Permanent control files must not be modified unless the user explicitly requests
 
 This includes, where present:
 
-- `.zcode/AGENTS.md`;
+- `AGENTS.md`;
 - `.zcode/agents/*.md`;
 - `.zcode/skills/*/SKILL.md`;
 - permanent Agent creation rules;
@@ -187,6 +244,8 @@ Normal public entry points include:
 - `python muse.py task ...`
 - `python muse.py report ...`
 - `python muse.py init ...`
+- `python muse.py query ...`
+- `python muse.py function ...`
 - `python muse.py time current`
 - `python muse.py log ...`
 
@@ -283,6 +342,51 @@ When an applicable Skill exists:
 - do not treat the Skill as an autonomous data owner;
 - do not invent missing Skill behavior;
 - do not allow a Skill to override higher-priority project or Tool contracts.
+
+## Query Rule
+
+Query owns fast deterministic reads, not mutations.
+
+When a suitable Query exists:
+
+- prefer it for compact information retrieval, filtering, aggregation, and direct relationship lookup;
+- inspect the Query Tool Result before using the returned facts;
+- fall back to the relevant Domain Tool when Query does not provide enough information;
+- never let Query silently mutate or initialize business state.
+
+Do not call internal Query Services directly during normal runtime.
+
+## Custom Function Rule
+
+Custom Function wraps relatively mature user-provided scripts or programs.
+
+Registry ownership:
+
+- `config/manifest.yaml` is the MuseAI-owned Function registry;
+- the manifest owns Function ID, name, description, and `enabled`;
+- `func/<function-id>/config/function.yaml` owns runtime invocation configuration;
+- `func/<function-id>/script/` and `data/` remain user-owned package content.
+
+A Function Package existing under `func/` does not make it a registered MuseAI Function.
+
+Main must not:
+
+- auto-discover or auto-register Functions by scanning `func/`;
+- guess Function semantic information that the user has not provided;
+- directly execute package scripts to bypass `function.run`;
+- modify Function scripts or data merely because execution failed;
+- automatically diagnose, repair, retry, install dependencies, or mutate the environment after a Function failure;
+- treat `function.unregister` as file deletion.
+
+`function.unregister` removes only the registry entry and must leave the user Function Package untouched.
+
+If the Function target is explicit and the user clearly requests execution, call `function.run` directly. Do not call `function.list` first merely to rediscover an already explicit ID.
+
+If the target is uncertain, `function.list` and optionally `function.get` may be used to resolve it. If material ambiguity remains, ask the user.
+
+A read-only question about a Function does not authorize execution.
+
+If Function startup is refused because the runtime cannot establish required process ownership or another execution prerequisite, preserve the Tool failure. Do not bypass the Function Runtime by directly launching the script.
 
 ## Logging Rule
 
@@ -421,15 +525,67 @@ When producing project files, preserve the requested file format and provide the
 For a normal runtime request:
 
 1. determine the user's actual goal;
-2. determine whether the operation is deterministic;
+2. determine whether the request is information retrieval, mutation/action, development, or discussion;
 3. identify any applicable Skill;
-4. use the relevant public Tool when implemented;
-5. perform ordinary reasoning directly in Main where needed;
-6. use a Sub-Agent only when independently valuable;
-7. sequence dependent operations;
-8. inspect each Tool Result;
-9. continue only when downstream prerequisites remain valid;
-10. report the final actual state.
+4. use a suitable Query for implemented read-only fast information access when appropriate;
+5. use the relevant public Domain Tool for deterministic mutations/actions or when Query is insufficient;
+6. perform ordinary reasoning directly in Main where needed;
+7. use a Sub-Agent only when independently valuable;
+8. sequence dependent operations;
+9. inspect each Tool Result;
+10. continue only when downstream prerequisites remain valid;
+11. report the final actual state.
+
+## Query Runtime Process
+
+For an information-access request:
+
+1. determine whether an implemented Query directly matches the requested information;
+2. call the public Query entry through `python muse.py query ...`;
+3. inspect the Query Tool Result;
+4. answer directly when the Query result is sufficient;
+5. use the relevant public Domain Tool when additional deterministic information is required;
+6. do not mutate Data merely to make a Query result look complete;
+7. do not silently run Init, Maintenance, or refresh operations from Query.
+
+For an ambiguous mutation target:
+
+```text
+Query identifies candidates
+→ Main decides or clarifies
+→ Domain Tool performs the mutation
+```
+
+Query never becomes the writer.
+
+## Custom Function Runtime Process
+
+For Custom Function requests:
+
+1. read `.zcode/skills/custom-function/SKILL.md`;
+2. distinguish inspection/installation/registration/management/execution intent;
+3. preserve an explicitly provided Function ID;
+4. for an explicit execution request, use `python muse.py function run <function-id>`;
+5. when the Function target is uncertain, use `function.list` and optionally `function.get` to resolve it;
+6. for registration, require the user-provided Function Package plus explicit ID / name / description;
+7. use `function.register` rather than editing `config/manifest.yaml` directly;
+8. use `function.update` only for registered semantic metadata;
+9. use `function.enable` / `function.disable` for registry state;
+10. use `function.unregister` only to remove the registry entry, never to delete the package;
+11. inspect each Function Tool Result and preserve process failures, stdout/stderr, warnings, and returned error codes;
+12. do not bypass a failed Function Runtime with direct script execution.
+
+The intended boundary is:
+
+```text
+User intent
+→ Main selects Function
+→ python muse.py function ...
+→ Function Runtime
+→ user-provided package
+→ Tool Result
+→ Main reports actual result
+```
 
 ## Daily Initialization Runtime Process
 
@@ -555,8 +711,10 @@ If a component is unavailable or unimplemented:
 Before completing a runtime operation, verify that:
 
 - the correct layer handled the work;
-- deterministic operations used the public Tool when available;
+- suitable read-only information access used Query when appropriate;
+- deterministic mutations/actions used the public Tool when available;
 - applicable Skills were followed;
+- Custom Function requests respected registry/package ownership and user-driven discovery;
 - Tool `ok`, warnings, and errors were interpreted correctly;
 - runtime Data was not directly edited to bypass an owning Tool;
 - unsupported planned behavior was not presented as implemented;
@@ -572,4 +730,4 @@ Before completing a development operation, verify that:
 
 ## Default Execution Principle
 
-> Choose the narrowest correct layer: Program for determinism, Skill for reusable method, Main for ordinary reasoning, and Sub-Agent only for independently valuable cognitive work.
+> Choose the narrowest correct layer: Program for determinism, Query for fast read-only information access, Skill for reusable method, Main for ordinary reasoning, and Sub-Agent only for independently valuable cognitive work.
