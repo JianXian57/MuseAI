@@ -18,6 +18,16 @@
                 "daily"
               ],
               "timeoutMs": 15000
+            },
+            {
+              "type": "process",
+              "command": "python",
+              "enabled": true,
+              "statusMessage": "正在检查每日汇报",
+              "args": [
+                "G:\\Agent\\MusesAI\\tools\\report_ops\\daily-report-init.py"
+              ],
+              "timeoutMs": 60000
             }
           ]
         }
