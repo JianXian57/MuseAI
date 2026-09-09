@@ -2,6 +2,9 @@
 # MuseAI - Private and Runtime Data
 # ============================================================
 
+# venv
+/.venv/
+
 # User data
 /config/user.yaml
 /data/**

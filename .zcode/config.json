@@ -7,25 +7,11 @@
           "hooks": [
             {
               "type": "process",
-              "command": "python",
+              "command": ".\\.venv\\python.exe",
               "enabled": true,
-              "statusMessage": "正在初始化今日任务",
+              "statusMessage": "正在检查每日汇报状态...",
               "args": [
-                "muse.py",
-                "--purpose",
-                "DailyInitHook",
-                "init",
-                "daily"
-              ],
-              "timeoutMs": 15000
-            },
-            {
-              "type": "process",
-              "command": "python",
-              "enabled": true,
-              "statusMessage": "正在检查每日汇报",
-              "args": [
-                "G:\\Agent\\MusesAI\\tools\\report_ops\\daily-report-init.py"
+                "tools\\report_ops\\daily-report-init.py"
               ],
               "timeoutMs": 60000
             }

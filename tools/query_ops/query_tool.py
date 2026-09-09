@@ -16,7 +16,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from common.result import success
+from common.result import failure, success
+from character_ops.character_service import (
+    CharacterConfigError,
+    CharacterManifestError,
+    CharacterProfileDataError,
+    CharacterProfileNotFoundError,
+    CharacterServiceError,
+    resolve_current_character as service_resolve_current_character,
+)
 from query_ops.query_errors import map_query_exception
 from query_ops.task_query_service import (
     query_daily_tasks as service_query_daily_tasks,
@@ -171,3 +179,98 @@ def task_overview(
         long_dir=long_dir,
         standing_dir=standing_dir,
     )
+
+
+def _map_character_exception(
+    operation: str,
+    exc: Exception,
+) -> dict[str, Any]:
+    """Map Character Service failures to stable Query Tool errors."""
+    if isinstance(exc, CharacterConfigError):
+        return failure(
+            operation,
+            "QUERY_CHARACTER_CONFIG_ERROR",
+            "MuseAI Character user configuration is invalid.",
+            {
+                "reason": str(exc),
+                "exception": type(exc).__name__,
+            },
+        )
+
+    if isinstance(exc, CharacterProfileNotFoundError):
+        return failure(
+            operation,
+            "QUERY_CHARACTER_PROFILE_NOT_FOUND",
+            "The configured MuseAI Character Profile could not be found.",
+            {
+                "reason": str(exc),
+                "exception": type(exc).__name__,
+            },
+        )
+
+    if isinstance(exc, CharacterProfileDataError):
+        return failure(
+            operation,
+            "QUERY_CHARACTER_PROFILE_DATA_ERROR",
+            "The configured MuseAI Character Profile defaults are invalid.",
+            {
+                "reason": str(exc),
+                "exception": type(exc).__name__,
+            },
+        )
+
+    if isinstance(exc, CharacterManifestError):
+        return failure(
+            operation,
+            "QUERY_CHARACTER_MANIFEST_ERROR",
+            "The configured MuseAI Character Reaction manifest is invalid.",
+            {
+                "reason": str(exc),
+                "exception": type(exc).__name__,
+            },
+        )
+
+    if isinstance(exc, CharacterServiceError):
+        return failure(
+            operation,
+            "QUERY_CHARACTER_DATA_ERROR",
+            "MuseAI Character data could not be resolved.",
+            {
+                "reason": str(exc),
+                "exception": type(exc).__name__,
+            },
+        )
+
+    return failure(
+        operation,
+        "QUERY_UNEXPECTED_ERROR",
+        "The Query Tool failed unexpectedly.",
+        {
+            "reason": str(exc),
+            "exception": type(exc).__name__,
+        },
+    )
+
+
+def character_current(
+    *,
+    user_config_path: str | Path | None = None,
+    character_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Return the effective current MuseAI Character runtime snapshot."""
+    operation = "query.character.current"
+
+    try:
+        data, warnings = service_resolve_current_character(
+            user_config_path=user_config_path,
+            character_root=character_root,
+        )
+    except Exception as exc:
+        return _map_character_exception(operation, exc)
+
+    return success(
+        operation,
+        data,
+        warnings,
+    )
+

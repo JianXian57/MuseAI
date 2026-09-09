@@ -11,11 +11,11 @@ This Skill teaches Main how to turn MuseAI's deterministic Daily Report Snapshot
 
 The deterministic report entry point is:
 
-`python muse.py report daily`
+`.\.venv\python.exe muse.py report daily`
 
 For an explicit date:
 
-`python muse.py report daily --date YYYY-MM-DD`
+`.\.venv\python.exe muse.py report daily --date YYYY-MM-DD`
 
 The Report Tool returns structured facts. Main is responsible only for presentation, light prioritization of already-computed facts, and natural-language phrasing.
 
@@ -62,13 +62,13 @@ When this Skill runs inside the normal daily initialization workflow, Maintenanc
 For the report itself, use one Report Tool result as the primary source:
 
 ```text
-python muse.py report daily
+.\.venv\python.exe muse.py report daily
 ```
 
 or:
 
 ```text
-python muse.py report daily --date YYYY-MM-DD
+.\.venv\python.exe muse.py report daily --date YYYY-MM-DD
 ```
 
 Do not call Daily, Long, or Standing read commands merely to recreate data that is already present in the Report Snapshot.

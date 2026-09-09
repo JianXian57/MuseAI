@@ -303,6 +303,6 @@ When the user asks how to install a Custom Function, explain approximately:
 6. Tell MuseAI the Function ID, Name, and Description.
 7. MuseAI registers the existing package.
 8. After registration and while enabled, it can be called through Main or
-   `python muse.py function run <function-id>`.
+   `.\.venv\python.exe muse.py function run <function-id>`.
 
 Keep this explanation concise unless the user requests more detail.

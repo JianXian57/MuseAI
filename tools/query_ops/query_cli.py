@@ -14,6 +14,7 @@ python muse.py query task long ...
 python muse.py query task standing ...
 python muse.py query task related ...
 python muse.py query task overview ...
+python muse.py query character current
 """
 
 from __future__ import annotations
@@ -127,6 +128,13 @@ def run_query_task_overview(args: argparse.Namespace) -> dict[str, Any]:
         "query.task.overview",
         "task_overview",
         date=args.date,
+    )
+
+
+def run_query_character_current(args: argparse.Namespace) -> dict[str, Any]:
+    return _run_query_tool(
+        "query.character.current",
+        "character_current",
     )
 
 
@@ -364,6 +372,27 @@ def register_query_cli(modules: Any) -> argparse.ArgumentParser:
         handler=run_query_task_overview,
         route_operation="query.task.overview",
         auto_log=True,
+    )
+
+    character_parser = domains.add_parser(
+        "character",
+        help="Read-only effective Character queries.",
+    )
+    character_commands = character_parser.add_subparsers(
+        dest="character_query",
+        metavar="<query>",
+    )
+
+    current = character_commands.add_parser(
+        "current",
+        help="Resolve the effective current Character configuration.",
+    )
+    current.set_defaults(
+        handler=run_query_character_current,
+        route_operation="query.character.current",
+        # Character context may be resolved for ordinary user-facing replies.
+        # Avoid turning that background read into one lifecycle log per turn.
+        auto_log=False,
     )
 
     return query_parser

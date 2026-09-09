@@ -63,7 +63,7 @@ Your core task is:
 
 For already implemented runtime operations, prefer the root CLI:
 
-`python muse.py ...`
+`.\.venv\python.exe muse.py ...`
 
 The root `muse.py` interface is the public runtime entry point.
 
@@ -91,6 +91,23 @@ When the user asks to develop, debug, refactor, review, or test MuseAI:
 
 Runtime lifecycle logs are not a development journal.
 
+
+## Planned Runtime Launcher
+
+A unified MuseAI Launcher is planned as a future infrastructure component.
+
+Its intended purpose is to provide one stable host-facing runtime entry while
+resolving the project-local Python interpreter deterministically, including
+the current Conda-style `.venv\python.exe` layout and a future standard-venv
+layout when support is intentionally added.
+
+The Launcher is **not implemented** in the current source and must not be used
+as though it already exists.
+
+Until the Launcher is implemented, the authoritative source-runtime entry is:
+
+`.\.venv\python.exe muse.py ...`
+
 ## Task Management Skill
 
 Task-specific semantics are maintained in:
@@ -113,15 +130,31 @@ When the user asks for a daily report, daily status summary, or overview of toda
 
 Use the public Report interface as the primary deterministic fact source:
 
-`python muse.py report daily`
+`.\.venv\python.exe muse.py report daily`
 
 For an explicit report date:
 
-`python muse.py report daily --date YYYY-MM-DD`
+`.\.venv\python.exe muse.py report daily --date YYYY-MM-DD`
 
 Do not duplicate the Daily Report Snapshot contract, Task interpretation rules, or presentation logic in this control file.
 
 The current Report CLI and Tool source remain authoritative for exact command availability, arguments, warnings, and error behavior.
+
+## Character Skill
+
+Character-specific runtime application rules are maintained in:
+
+`.zcode/skills/character/SKILL.md`
+
+For user-visible replies when Character is enabled, resolve the current effective Character through the public read-only Query:
+
+`.\.venv\python.exe muse.py query character current`
+
+Then follow `character/CHARACTER.md`, the active Profile returned by the Query, and the Character Skill when shaping the final user-facing expression.
+
+Character is an expression layer only. It does not change Main, Tool, Query, Skill, Sub-Agent, Data, file, system, or reality capability boundaries.
+
+Do not duplicate the full Character schema, Profile contract, Reaction manifest contract, or style interpretation rules in this control file.
 
 ## Query Layer
 
@@ -129,13 +162,19 @@ Query is MuseAI's general read-only fast information-access layer.
 
 Use Query when the user primarily needs deterministic information retrieval, filtering, aggregation, compact derived facts, or direct relationships and a suitable Query operation exists.
 
-Current Task Query public entry points include:
+Current public Query entry points include:
 
-- `python muse.py query task daily`
-- `python muse.py query task long`
-- `python muse.py query task standing`
-- `python muse.py query task related`
-- `python muse.py query task overview`
+Task:
+
+- `.\.venv\python.exe muse.py query task daily`
+- `.\.venv\python.exe muse.py query task long`
+- `.\.venv\python.exe muse.py query task standing`
+- `.\.venv\python.exe muse.py query task related`
+- `.\.venv\python.exe muse.py query task overview`
+
+Character:
+
+- `.\.venv\python.exe muse.py query character current`
 
 Query must remain strictly read-only.
 
@@ -162,14 +201,14 @@ When the user's request involves adding, installing, registering, inspecting, ru
 
 The public Function interface is:
 
-- `python muse.py function list`
-- `python muse.py function get <function-id>`
-- `python muse.py function run <function-id>`
-- `python muse.py function register <function-id> --name "..." --description "..."`
-- `python muse.py function update <function-id> ...`
-- `python muse.py function unregister <function-id>`
-- `python muse.py function enable <function-id>`
-- `python muse.py function disable <function-id>`
+- `.\.venv\python.exe muse.py function list`
+- `.\.venv\python.exe muse.py function get <function-id>`
+- `.\.venv\python.exe muse.py function run <function-id>`
+- `.\.venv\python.exe muse.py function register <function-id> --name "..." --description "..."`
+- `.\.venv\python.exe muse.py function update <function-id> ...`
+- `.\.venv\python.exe muse.py function unregister <function-id>`
+- `.\.venv\python.exe muse.py function enable <function-id>`
+- `.\.venv\python.exe muse.py function disable <function-id>`
 
 Custom Function discovery is user-driven, not filesystem-driven.
 
@@ -241,13 +280,13 @@ Use public Tools for deterministic runtime work.
 
 Normal public entry points include:
 
-- `python muse.py task ...`
-- `python muse.py report ...`
-- `python muse.py init ...`
-- `python muse.py query ...`
-- `python muse.py function ...`
-- `python muse.py time current`
-- `python muse.py log ...`
+- `.\.venv\python.exe muse.py task ...`
+- `.\.venv\python.exe muse.py report ...`
+- `.\.venv\python.exe muse.py init ...`
+- `.\.venv\python.exe muse.py query ...`
+- `.\.venv\python.exe muse.py function ...`
+- `.\.venv\python.exe muse.py time current`
+- `.\.venv\python.exe muse.py log ...`
 
 Do not directly mutate the corresponding Data when a Tool owns that mutation.
 
@@ -288,6 +327,37 @@ When `ok` is `false`:
 
 Warnings do not automatically convert success into failure.
 
+
+## MuseAI Python Runtime Rule
+
+MuseAI's current source-development runtime uses the project-local Python
+environment at:
+
+`.\.venv\python.exe`
+
+All normal MuseAI runtime commands initiated by Main or documented in Skills
+must use that interpreter together with the root CLI.
+
+Examples:
+
+- `.\.venv\python.exe muse.py query character current`
+- `.\.venv\python.exe muse.py task ...`
+- `.\.venv\python.exe muse.py report ...`
+- `.\.venv\python.exe muse.py init ...`
+- `.\.venv\python.exe muse.py function ...`
+
+Do not use bare `python`, `python3`, or `py` for MuseAI runtime commands.
+Do not fall back to another system Python interpreter when the project runtime
+is missing or unusable. Surface the runtime prerequisite failure instead.
+
+Host adapters that are already launched by the project-local runtime may use
+`sys.executable` for child MuseAI processes so the same interpreter is
+preserved across the process chain.
+
+This is the current source-runtime contract. A unified MuseAI Launcher is
+planned but is not implemented yet; do not assume or invoke that Launcher
+until its implementation is explicitly added.
+
 ## Runtime Environment Mutation Rule
 
 A normal runtime request does not authorize Main to modify the Python or system environment.
@@ -305,7 +375,7 @@ Project dependency declarations such as `requirements.txt` should contain known 
 
 Daily Task initialization is a deterministic runtime capability exposed through:
 
-`python muse.py init daily`
+`.\.venv\python.exe muse.py init daily`
 
 Its responsibility is to prepare the current Daily Task state by reusing the existing Task Maintenance logic.
 
@@ -342,6 +412,38 @@ When an applicable Skill exists:
 - do not treat the Skill as an autonomous data owner;
 - do not invent missing Skill behavior;
 - do not allow a Skill to override higher-priority project or Tool contracts.
+
+## Character Rule
+
+Character applies to user-visible expression when enabled in `config/user.yaml`.
+
+Use:
+
+`.\.venv\python.exe muse.py query character current`
+
+to resolve the effective Character snapshot. Do not call the internal Character Service directly during normal runtime.
+
+When Character is enabled:
+
+- read and follow `character/CHARACTER.md`;
+- read the active `profile.md` identified by the Character Query;
+- apply effective `style` and `expression` values as semantic tendencies, not random probabilities;
+- use only Reaction entries returned by the current Profile Query result;
+- render only available Reaction resources using the returned `uri`;
+- respect `reaction.enabled` and the configured cooldown preference;
+- keep facts, Tool Results, commands, paths, errors, permissions, and deterministic state unchanged.
+
+If Character is disabled, reply normally without role-playing a Profile.
+
+If Character resolution fails, do not guess, scan other Profiles, or silently fall back to another Character. Continue the substantive request in a neutral style when possible and surface the Character failure when materially relevant.
+
+`character/.other/` is creation/reference material, not a normal runtime input source.
+
+The current user's explicit request for tone, naming, brevity, seriousness, Emoji, or Reaction behavior takes precedence for that response unless the user explicitly requests a persistent configuration change.
+
+Character application must happen after the actual task result is established:
+
+> Do the work correctly first; then express the correct result through the active Character.
 
 ## Query Rule
 
@@ -541,7 +643,7 @@ For a normal runtime request:
 For an information-access request:
 
 1. determine whether an implemented Query directly matches the requested information;
-2. call the public Query entry through `python muse.py query ...`;
+2. call the public Query entry through `.\.venv\python.exe muse.py query ...`;
 3. inspect the Query Tool Result;
 4. answer directly when the Query result is sufficient;
 5. use the relevant public Domain Tool when additional deterministic information is required;
@@ -565,7 +667,7 @@ For Custom Function requests:
 1. read `.zcode/skills/custom-function/SKILL.md`;
 2. distinguish inspection/installation/registration/management/execution intent;
 3. preserve an explicitly provided Function ID;
-4. for an explicit execution request, use `python muse.py function run <function-id>`;
+4. for an explicit execution request, use `.\.venv\python.exe muse.py function run <function-id>`;
 5. when the Function target is uncertain, use `function.list` and optionally `function.get` to resolve it;
 6. for registration, require the user-provided Function Package plus explicit ID / name / description;
 7. use `function.register` rather than editing `config/manifest.yaml` directly;
@@ -580,7 +682,7 @@ The intended boundary is:
 ```text
 User intent
 → Main selects Function
-→ python muse.py function ...
+→ .\.venv\python.exe muse.py function ...
 → Function Runtime
 → user-provided package
 → Tool Result
@@ -591,7 +693,7 @@ User intent
 
 For deterministic Daily initialization:
 
-1. use `python muse.py init daily`;
+1. use `.\.venv\python.exe muse.py init daily`;
 2. inspect the `init.daily` Tool Result;
 3. treat `changed=false` as a normal successful no-op, not as a failure;
 4. do not replace the Init Tool with direct `task maintenance check/apply` orchestration when `init.daily` is available;
@@ -602,7 +704,7 @@ For host-triggered initialization, the intended boundary is:
 
 ```text
 Host trigger
-→ python muse.py init daily
+→ .\.venv\python.exe muse.py init daily
 → continue normal interaction
 ```
 
@@ -614,7 +716,7 @@ For Daily, Long, or Standing Task requests:
 
 1. read `.zcode/skills/task-management/SKILL.md`;
 2. preserve the user's Task intent and explicit relationships;
-3. use `python muse.py task ...` for deterministic runtime operations;
+3. use `.\.venv\python.exe muse.py task ...` for deterministic runtime operations;
 4. let current CLI / Tool behavior determine exact command availability and syntax;
 5. sequence cross-Task operations according to the Skill;
 6. inspect every Tool Result before performing dependent mutations;
@@ -626,10 +728,10 @@ For Daily, Long, or Standing Task requests:
 For a Daily Report request:
 
 1. read `.zcode/skills/daily-report/SKILL.md`;
-2. when the user requests the current day's report without supplying another date, first run `python muse.py init daily`;
+2. when the user requests the current day's report without supplying another date, first run `.\.venv\python.exe muse.py init daily`;
 3. inspect the `init.daily` Tool Result and continue only if the current-day Task state is valid for reporting;
-4. then use `python muse.py report daily` as the primary deterministic report source;
-5. when the user explicitly requests another report date, use `python muse.py report daily --date YYYY-MM-DD` and do not automatically initialize that historical or future date unless the user explicitly requests it or another authorized workflow owns that mutation;
+4. then use `.\.venv\python.exe muse.py report daily` as the primary deterministic report source;
+5. when the user explicitly requests another report date, use `.\.venv\python.exe muse.py report daily --date YYYY-MM-DD` and do not automatically initialize that historical or future date unless the user explicitly requests it or another authorized workflow owns that mutation;
 6. inspect the `report.daily` Tool Result before presenting report facts;
 7. render the user-facing report from the returned Snapshot according to the Skill and applicable Template;
 8. do not re-read raw Task JSON merely to recreate Snapshot facts;

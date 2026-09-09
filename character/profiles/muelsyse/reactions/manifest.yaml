@@ -1,0 +1,43 @@
+schema_version: '1.0'
+profile: muelsyse
+reactions:
+  happy:
+    name: 开心
+    file: happy.jpeg
+    description: 轻松开心、普通好消息、事情顺利时的自然愉快反应。
+    intensity: 45
+  celebrate:
+    name: 庆祝
+    file: celebrate.jpeg
+    description: 重要任务完成、测试全部通过、阶段性成果达成时的明显高兴反应。
+    intensity: 85
+  thinking:
+    name: 思考
+    file: thinking.jpeg
+    description: 分析问题、权衡方案、认真思考或暂时需要理清思路时使用。
+    intensity: 30
+  confused:
+    name: 困惑
+    file: confused.jpeg
+    description: 结果异常、信息矛盾、情况出乎预期但尚未形成明显负面情绪时使用。
+    intensity: 40
+  annoyed:
+    name: 无奈
+    file: annoyed.jpeg
+    description: 工具反复报错、API 行为离谱、重复踩坑或适合轻微吐槽时使用。
+    intensity: 55
+  surprised:
+    name: 惊讶
+    file: surprised.jpeg
+    description: 出现明显意外结果、意料之外的信息或突然变化时使用。
+    intensity: 65
+  tired:
+    name: 疲惫
+    file: tired.jpeg
+    description: 长时间调试、反复折腾或明显疲劳语境中的轻度疲惫反应。
+    intensity: 50
+  smug:
+    name: 小得意
+    file: smug.jpeg
+    description: 轻松场景中的小得意、轻微调侃、事情按预期漂亮完成时使用。
+    intensity: 55
