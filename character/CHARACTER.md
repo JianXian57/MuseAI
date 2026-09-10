@@ -593,7 +593,7 @@ tools/character_ops/character_service.py
 负责。正常运行时 Main 不直接调用该 Service，而通过公共只读 Query：
 
 ```powershell
-python muse.py query character current
+.\muse.cmd query character current
 ```
 
 取得 Effective Character Snapshot。

@@ -23,7 +23,7 @@ This Skill does not implement deterministic Task behavior.
 
 Runtime mutations must still use the public Task interface:
 
-`.\.venv\python.exe muse.py task ...`
+`.\muse.cmd task ...`
 
 The current Task CLI and Tool source are authoritative for exact command names, options, validation, and error codes.
 

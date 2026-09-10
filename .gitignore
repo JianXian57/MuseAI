@@ -5,6 +5,9 @@
 # venv
 /.venv/
 
+# Machine-local bootstrap config
+/config/runtime.json
+
 # User data
 /config/user.yaml
 /data/**

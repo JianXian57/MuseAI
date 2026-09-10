@@ -13,7 +13,7 @@ For normal user-visible MuseAI replies when Character may apply:
 1. Resolve the current effective Character through:
 
    ```powershell
-   .\.venv\python.exe muse.py query character current
+   .\muse.cmd query character current
    ```
 
 2. Inspect the returned Tool Result.

@@ -7,10 +7,14 @@
           "hooks": [
             {
               "type": "process",
-              "command": ".\\.venv\\python.exe",
+              "command": "cmd.exe",
               "enabled": true,
               "statusMessage": "正在检查每日汇报状态...",
               "args": [
+                "/d",
+                "/c",
+                ".\\muse.cmd",
+                "--script",
                 "tools\\report_ops\\daily-report-init.py"
               ],
               "timeoutMs": 60000

@@ -270,30 +270,75 @@ MuseAI 公共 Tool 统一返回：
 
 ---
 
-## `muse.py`
+## Runtime Launcher 与 `muse.py`
 
-`muse.py` 是 MuseAI 的统一公共 CLI。
+MuseAI 的普通用户 / Main / 宿主运行入口是：
+
+```powershell
+.\muse.cmd ...
+```
+
+`muse.cmd` 进入 Bootstrap Launcher，读取本机 `config/runtime.json` 中配置的
+`python_executable`，再使用该解释器启动 Python 侧根 CLI `muse.py`。
+
+因此：
+
+```text
+user / Main / host
+→ muse.cmd
+→ launcher.ps1
+→ configured python.exe
+→ muse.py
+→ Tool / Query / Service
+```
+
+正常运行不依赖 shell 中的 `python`、`python3`、`py` 或固定 `.venv` 路径。
+`muse.py` 仍负责命令解析、公共 Tool Result、生命周期日志与退出码，但普通
+Runtime 调用应通过 `muse.cmd` 到达它。
+
+首次配置或修改 Runtime：
+
+```powershell
+.\muse.cmd --settings
+```
+
+在 Settings 中手动选择兼容的 `python.exe`，执行环境检测后保存。当前
+Settings 只检测环境，不安装 Python、不创建环境、不安装依赖。
+
+机器本地配置：
+
+```text
+config/runtime.json
+```
+
+该文件不进入 Git。仓库中的：
+
+```text
+config/runtime.example.json
+```
+
+仅作为配置格式示例。
 
 示例：
 
 ```powershell
-python muse.py time current
+.\muse.cmd time current
 
-python muse.py task maintenance check
-python muse.py task maintenance apply
+.\muse.cmd task maintenance check
+.\muse.cmd task maintenance apply
 
-python muse.py init daily
-python muse.py report daily
+.\muse.cmd init daily
+.\muse.cmd report daily
 
-python muse.py query task overview
-python muse.py query task daily --status pending
+.\muse.cmd query task overview
+.\muse.cmd query task daily --status pending
 
-python muse.py function list
-python muse.py function get example-function
-python muse.py function run example-function
+.\muse.cmd function list
+.\muse.cmd function get example-function
+.\muse.cmd function run example-function
 ```
 
-Main 的普通运行流程应优先通过根 CLI，而不是直接调用内部 Service。
+Main 的普通运行流程应通过 Launcher + 根 CLI，而不是直接调用内部 Service。
 
 ---
 
@@ -306,7 +351,7 @@ Time Tool 使用 `config/user.yaml` 中的 IANA 时区作为权威时区。
 当前时间：
 
 ```powershell
-python muse.py time current
+.\muse.cmd time current
 ```
 
 项目运行依赖中应明确声明 `tzdata`，普通运行期间不允许 Main 静默安装。
@@ -352,7 +397,7 @@ data/tasks/
 Task 公共能力统一通过：
 
 ```powershell
-python muse.py task ...
+.\muse.cmd task ...
 ```
 
 ### Daily
@@ -400,15 +445,15 @@ Daily Maintenance 负责：
 公共接口：
 
 ```powershell
-python muse.py task maintenance check
-python muse.py task maintenance apply
+.\muse.cmd task maintenance check
+.\muse.cmd task maintenance apply
 ```
 
 支持显式日期：
 
 ```powershell
-python muse.py task maintenance check --date YYYY-MM-DD
-python muse.py task maintenance apply --date YYYY-MM-DD
+.\muse.cmd task maintenance check --date YYYY-MM-DD
+.\muse.cmd task maintenance apply --date YYYY-MM-DD
 ```
 
 `check` 只读，`apply` 幂等、可恢复。
@@ -420,7 +465,7 @@ python muse.py task maintenance apply --date YYYY-MM-DD
 Daily Init 是每日任务状态的统一初始化入口：
 
 ```powershell
-python muse.py init daily
+.\muse.cmd init daily
 ```
 
 内部复用 Maintenance：
@@ -432,13 +477,19 @@ init daily
 → actions: maintenance apply
 ```
 
-当前 ZCode 使用 `UserPromptSubmit` Hook 调用：
+当前 ZCode 的 `UserPromptSubmit` Hook 由宿主适配脚本负责首次日报检查：
 
 ```powershell
-python muse.py --purpose DailyInitHook init daily
+.\muse.cmd --script tools\report_ops\daily-report-init.py
 ```
 
-Hook 只决定**什么时候调用**，Task 业务逻辑仍由 MuseAI Tool 拥有。
+Launcher 只负责使用 `config/runtime.json` 中选定的 Python 启动该项目内
+Host Adapter。`daily-report-init.py` 再按现有契约调用 `init daily` 与
+`report daily`。
+
+Hook / Host Adapter 只决定**什么时候调用**和如何把日报上下文交给宿主；
+Daily Init、Task Maintenance 与 Daily Report 的业务事实仍由 MuseAI 的公共
+Tool 路径拥有。
 
 ---
 
@@ -447,8 +498,8 @@ Hook 只决定**什么时候调用**，Task 业务逻辑仍由 MuseAI Tool 拥�
 Daily Report 使用只读 Snapshot：
 
 ```powershell
-python muse.py report daily
-python muse.py report daily --date YYYY-MM-DD
+.\muse.cmd report daily
+.\muse.cmd report daily --date YYYY-MM-DD
 ```
 
 普通当前日报流程：
@@ -488,11 +539,11 @@ Query 永远不：
 当前 Task Query：
 
 ```powershell
-python muse.py query task daily
-python muse.py query task long
-python muse.py query task standing
-python muse.py query task related
-python muse.py query task overview
+.\muse.cmd query task daily
+.\muse.cmd query task long
+.\muse.cmd query task standing
+.\muse.cmd query task related
+.\muse.cmd query task overview
 ```
 
 路由原则：
@@ -524,15 +575,15 @@ Custom Function 的定位是：
 当前公共接口：
 
 ```powershell
-python muse.py function list
-python muse.py function get <function-id>
-python muse.py function run <function-id>
+.\muse.cmd function list
+.\muse.cmd function get <function-id>
+.\muse.cmd function run <function-id>
 
-python muse.py function register <function-id> --name "..." --description "..."
-python muse.py function update <function-id> --name "..." --description "..."
-python muse.py function unregister <function-id>
-python muse.py function enable <function-id>
-python muse.py function disable <function-id>
+.\muse.cmd function register <function-id> --name "..." --description "..."
+.\muse.cmd function update <function-id> --name "..." --description "..."
+.\muse.cmd function unregister <function-id>
+.\muse.cmd function enable <function-id>
+.\muse.cmd function disable <function-id>
 ```
 
 ## Registry
