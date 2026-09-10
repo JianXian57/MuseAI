@@ -12,10 +12,12 @@ Behavior:
 - Uses MuseAI public CLI for current date, Daily Init, and Daily Report.
 - If today's automatic report was already generated, returns no context.
 - Otherwise runs:
-    python muse.py init daily
-    python muse.py report daily
-- Only after both succeed, atomically writes last_auto_report_date.
-- Injects the Report Tool Result into the current ZCode turn.
+    muse.py init daily
+    muse.py report daily
+- Serializes the complete first-daily-report flow with a cross-process lock.
+- Emits the Report Tool Result to the current ZCode turn using UTF-8 JSON.
+- Only after successful context emission, atomically records
+  last_auto_report_date.
 """
 
 from __future__ import annotations
@@ -25,8 +27,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -39,21 +43,39 @@ PROJECT_ROOT = SCRIPT_PATH.parents[2]
 
 MUSE_PY = PROJECT_ROOT / "muse.py"
 STATE_PATH = PROJECT_ROOT / "data" / "state" / "daily-report-init.json"
+LOCK_PATH = PROJECT_ROOT / "data" / "state" / "daily-report-init.lock"
 
 STATE_SCHEMA_VERSION = "1.0"
 PURPOSE = "DailyReportInitHook"
 HOOK_EVENT = "UserPromptSubmit"
+LOCK_TIMEOUT_SECONDS = 20.0
+LOCK_POLL_SECONDS = 0.1
 
 
 class HookError(RuntimeError):
     pass
 
 
+def _write_utf8(stream: Any, text: str, *, errors: str = "strict") -> None:
+    """Write explicit UTF-8 bytes when a binary buffer is available."""
+    data = text.encode("utf-8", errors=errors)
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        buffer.write(data)
+        buffer.flush()
+        return
+
+    # Test doubles such as io.StringIO do not expose `.buffer`.
+    stream.write(data.decode("utf-8", errors=errors))
+    stream.flush()
+
+
 def _emit(payload: dict[str, Any]) -> None:
-    sys.stdout.write(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    """Write the one and only ZCode protocol object as UTF-8 JSON."""
+    _write_utf8(
+        sys.stdout,
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
     )
-    sys.stdout.flush()
 
 
 def _emit_context(text: str) -> None:
@@ -68,12 +90,28 @@ def _emit_context(text: str) -> None:
 
 
 def _debug(message: str) -> None:
-    sys.stderr.write(f"[daily-report-init] {message}\n")
-    sys.stderr.flush()
+    # Diagnostics are best-effort and must never corrupt stdout protocol JSON.
+    try:
+        _write_utf8(
+            sys.stderr,
+            f"[daily-report-init] {message}\n",
+            errors="backslashreplace",
+        )
+    except Exception:
+        pass
 
 
 def _read_hook_input() -> dict[str, Any]:
-    raw = sys.stdin.read().strip()
+    buffer = getattr(sys.stdin, "buffer", None)
+
+    try:
+        if buffer is not None:
+            raw = buffer.read().decode("utf-8", errors="strict").strip()
+        else:
+            raw = sys.stdin.read().strip()
+    except UnicodeDecodeError as exc:
+        raise HookError(f"Invalid UTF-8 in ZCode hook input: {exc}") from exc
+
     if not raw:
         return {}
 
@@ -108,9 +146,17 @@ def _run_muse(*args: str) -> dict[str, Any]:
     if not MUSE_PY.is_file():
         raise HookError(f"MuseAI root CLI was not found: {MUSE_PY}")
 
+    env = os.environ.copy()
+    # Child CLI output is a machine protocol. Force UTF-8 independently of the
+    # Windows console/code-page inherited by the host process.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+
     completed = subprocess.run(
         [
             sys.executable,
+            "-X",
+            "utf8",
             str(MUSE_PY),
             "--purpose",
             PURPOSE,
@@ -120,15 +166,24 @@ def _run_muse(*args: str) -> dict[str, Any]:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        env=env,
+        text=False,
         shell=False,
         check=False,
     )
 
-    raw_stdout = completed.stdout.strip()
-    raw_stderr = completed.stderr.strip()
+    try:
+        raw_stdout = completed.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise HookError(
+            f"MuseAI returned non-UTF-8 stdout for: {' '.join(args)} "
+            f"(exit={completed.returncode})"
+        ) from exc
+
+    raw_stderr = completed.stderr.decode(
+        "utf-8",
+        errors="backslashreplace",
+    ).strip()
 
     if raw_stderr:
         _debug(raw_stderr)
@@ -214,6 +269,82 @@ def _atomic_write_state(state: dict[str, Any]) -> None:
         raise
 
 
+def _try_lock(handle: Any) -> bool:
+    """Try to acquire an exclusive cross-process lock without blocking."""
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+
+    # POSIX fallback keeps the regression test executable outside Windows.
+    import fcntl
+
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        return False
+    return True
+
+
+def _unlock(handle: Any) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _daily_report_lock(
+    *,
+    timeout_seconds: float = LOCK_TIMEOUT_SECONDS,
+) -> Iterator[None]:
+    """Serialize the full check -> init -> report -> emit -> commit flow."""
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with LOCK_PATH.open("a+b") as handle:
+        # msvcrt.locking locks a byte range; ensure byte 0 exists.
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        acquired = False
+
+        while True:
+            if _try_lock(handle):
+                acquired = True
+                break
+
+            if time.monotonic() >= deadline:
+                raise HookError(
+                    "Timed out waiting for the Daily Report cross-process lock."
+                )
+
+            time.sleep(LOCK_POLL_SECONDS)
+
+        try:
+            yield
+        finally:
+            if acquired:
+                try:
+                    _unlock(handle)
+                except OSError as exc:
+                    _debug(f"Could not release Daily Report lock cleanly: {exc}")
+
+
 def _current_muse_date() -> str:
     result = _run_muse("time", "current")
     data = result.get("data")
@@ -228,7 +359,32 @@ def _current_muse_date() -> str:
     return current_date
 
 
+def _build_context(
+    *,
+    today: str,
+    init_result: dict[str, Any],
+    report_result: dict[str, Any],
+) -> str:
+    return (
+        "[MuseAI Automatic Daily Report]\n"
+        f"This is the first MuseAI user interaction for {today} that "
+        "successfully generated today's automatic Daily Report.\n"
+        "The hook has already completed `init.daily` and `report.daily`; "
+        "do not rerun them merely for this automatic report.\n"
+        "Before answering the user's original prompt, render the Daily "
+        "Report according to `.zcode/skills/daily-report/SKILL.md` using "
+        "the authoritative Report Tool Result below. After the report, "
+        "continue handling the user's original request normally.\n"
+        "init.daily warnings: "
+        f"{json.dumps(init_result.get('warnings', []), ensure_ascii=False)}\n"
+        "Report Tool Result:\n"
+        f"{json.dumps(report_result, ensure_ascii=False, separators=(',', ':'))}"
+    )
+
+
 def main() -> int:
+    output_emitted = False
+
     try:
         hook_input = _read_hook_input()
 
@@ -241,53 +397,63 @@ def main() -> int:
             _emit({})
             return 0
 
-        today = _current_muse_date()
-        state = _load_state()
+        with _daily_report_lock():
+            # Resolve the authoritative date inside the same serialized flow.
+            # This also avoids a midnight rollover while waiting for the lock.
+            today = _current_muse_date()
 
-        if state.get("last_auto_report_date") == today:
-            _emit({})
-            return 0
+            # The state must be read after lock acquisition. A second process
+            # may have completed today's report while this process was waiting.
+            state = _load_state()
+            if state.get("last_auto_report_date") == today:
+                _emit({})
+                return 0
 
-        init_result = _run_muse("init", "daily")
-        report_result = _run_muse("report", "daily")
+            init_result = _run_muse("init", "daily")
+            report_result = _run_muse("report", "daily")
+            context = _build_context(
+                today=today,
+                init_result=init_result,
+                report_result=report_result,
+            )
 
-        _atomic_write_state(
-            {
-                "schema_version": STATE_SCHEMA_VERSION,
-                "last_auto_report_date": today,
-            }
-        )
+            # At-least-once delivery semantics: only mark success after the
+            # protocol payload has been written and flushed successfully.
+            _emit_context(context)
+            output_emitted = True
 
-        context = (
-            "[MuseAI Automatic Daily Report]\n"
-            f"This is the first MuseAI user interaction for {today} that "
-            "successfully generated today's automatic Daily Report.\n"
-            "The hook has already completed `init.daily` and `report.daily`; "
-            "do not rerun them merely for this automatic report.\n"
-            "Before answering the user's original prompt, render the Daily "
-            "Report according to `.zcode/skills/daily-report/SKILL.md` using "
-            "the authoritative Report Tool Result below. After the report, "
-            "continue handling the user's original request normally.\n"
-            "init.daily warnings: "
-            f"{json.dumps(init_result.get('warnings', []), ensure_ascii=False)}\n"
-            "Report Tool Result:\n"
-            f"{json.dumps(report_result, ensure_ascii=False, separators=(',', ':'))}"
-        )
+            _atomic_write_state(
+                {
+                    "schema_version": STATE_SCHEMA_VERSION,
+                    "last_auto_report_date": today,
+                }
+            )
 
-        _emit_context(context)
         return 0
 
     except Exception as exc:
         _debug(f"{type(exc).__name__}: {exc}")
 
-        _emit_context(
-            "[MuseAI Automatic Daily Report]\n"
-            "The automatic Daily Report hook failed before today could be "
-            "marked as completed. Continue handling the user's original "
-            "request, briefly surface this hook failure, and do not claim "
-            "that the automatic Daily Report succeeded.\n"
-            f"Failure: {type(exc).__name__}: {exc}"
-        )
+        # Never write a second JSON object after a successful protocol emit.
+        # If state commit failed after emission, leaving the date unmarked is
+        # intentional so a later prompt may retry.
+        if output_emitted:
+            return 0
+
+        try:
+            _emit_context(
+                "[MuseAI Automatic Daily Report]\n"
+                "The automatic Daily Report hook failed before today could be "
+                "marked as completed. Continue handling the user's original "
+                "request, briefly surface this hook failure, and do not claim "
+                "that the automatic Daily Report succeeded.\n"
+                f"Failure: {type(exc).__name__}: {exc}"
+            )
+        except Exception as emit_exc:
+            _debug(
+                "Could not emit Daily Report failure context: "
+                f"{type(emit_exc).__name__}: {emit_exc}"
+            )
         return 0
 
 

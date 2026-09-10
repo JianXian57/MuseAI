@@ -79,6 +79,62 @@ class CharacterManifestError(CharacterServiceError):
     """The selected Profile Reaction manifest is invalid."""
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects duplicate mapping keys."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeySafeLoader,
+    node: yaml.MappingNode,
+    deep: bool = False,
+) -> dict[Any, Any]:
+    loader.flatten_mapping(node)
+    mapping: dict[Any, Any] = {}
+
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError as exc:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable mapping key",
+                key_node.start_mark,
+            ) from exc
+
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+def _validate_string_keys(
+    value: dict[Any, Any],
+    *,
+    label: str,
+    error_type: type[CharacterServiceError],
+) -> None:
+    non_string = [repr(key) for key in value if not isinstance(key, str)]
+    if non_string:
+        raise error_type(
+            f"{label} contains non-string field names: {', '.join(non_string)}."
+        )
+
+
 def _load_yaml_mapping(
     path: Path,
     *,
@@ -95,13 +151,14 @@ def _load_yaml_mapping(
         raise invalid_error(f"Could not read {label}: {path}: {exc}") from exc
 
     try:
-        value = yaml.safe_load(raw)
+        value = yaml.load(raw, Loader=_UniqueKeySafeLoader)
     except yaml.YAMLError as exc:
         raise invalid_error(f"Invalid YAML in {label}: {path}: {exc}") from exc
 
     if not isinstance(value, dict):
         raise invalid_error(f"{label} must contain a YAML mapping: {path}")
 
+    _validate_string_keys(value, label=label, error_type=invalid_error)
     return value
 
 
@@ -158,6 +215,7 @@ def _validate_numeric_group(
     if not isinstance(value, dict):
         raise error_type(f"{label} must be a YAML mapping.")
 
+    _validate_string_keys(value, label=label, error_type=error_type)
     unknown = sorted(set(value) - set(allowed_keys))
     if unknown:
         raise error_type(
@@ -244,6 +302,9 @@ def _load_user_character_config(path: Path) -> dict[str, Any]:
 
     if not isinstance(raw_character, dict):
         raise CharacterConfigError("character must be a YAML mapping.")
+    _validate_string_keys(
+        raw_character, label="character", error_type=CharacterConfigError
+    )
 
     enabled = _validate_bool(
         raw_character.get("enabled", False),
@@ -256,6 +317,11 @@ def _load_user_character_config(path: Path) -> dict[str, Any]:
         raw_overrides = {}
     if not isinstance(raw_overrides, dict):
         raise CharacterConfigError("character.overrides must be a YAML mapping.")
+    _validate_string_keys(
+        raw_overrides,
+        label="character.overrides",
+        error_type=CharacterConfigError,
+    )
 
     unknown_override_groups = sorted(
         set(raw_overrides) - {"style", "expression"}
@@ -286,6 +352,11 @@ def _load_user_character_config(path: Path) -> dict[str, Any]:
         raw_reaction = {}
     if not isinstance(raw_reaction, dict):
         raise CharacterConfigError("character.reaction must be a YAML mapping.")
+    _validate_string_keys(
+        raw_reaction,
+        label="character.reaction",
+        error_type=CharacterConfigError,
+    )
 
     unknown_reaction_fields = sorted(
         set(raw_reaction) - {"enabled", "cooldown_turns"}
@@ -400,6 +471,11 @@ def _load_reaction_manifest(
     raw_reactions = manifest.get("reactions")
     if not isinstance(raw_reactions, dict):
         raise CharacterManifestError("Reaction manifest `reactions` must be a mapping.")
+    _validate_string_keys(
+        raw_reactions,
+        label="Reaction manifest `reactions`",
+        error_type=CharacterManifestError,
+    )
 
     reactions_dir = manifest_path.parent
     output: dict[str, Any] = {}
@@ -417,6 +493,11 @@ def _load_reaction_manifest(
             raise CharacterManifestError(
                 f"Reaction `{reaction_id}` must be a YAML mapping."
             )
+        _validate_string_keys(
+            raw,
+            label=f"Reaction `{reaction_id}`",
+            error_type=CharacterManifestError,
+        )
 
         required_fields = {"name", "file", "description", "intensity"}
         missing_fields = sorted(required_fields - set(raw))
