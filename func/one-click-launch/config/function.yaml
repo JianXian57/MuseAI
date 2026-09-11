@@ -1,0 +1,12 @@
+schema_version: "1.0"
+
+process:
+  command: "cmd.exe"
+  args:
+    - "/d"
+    - "/c"
+    - "..\\..\\muse.cmd"
+    - "--script"
+    - "func\\one-click-launch\\script\\launch.py"
+  cwd: "."
+  timeout_seconds: 30

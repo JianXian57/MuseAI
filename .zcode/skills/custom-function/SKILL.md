@@ -109,7 +109,10 @@ It is MuseAI registry state in `config/manifest.yaml`.
 
 Relative `cwd` values are resolved from the Function root.
 
-Arguments are passed as argv with `shell=False`.
+Configured arguments are passed as argv with `shell=False`.
+When `function.run` includes per-invocation Function arguments, they are
+appended after these fixed configured arguments.
+
 Do not build a shell command string and do not infer script types.
 
 ## Installation / Registration Flow
@@ -153,6 +156,26 @@ function.run
 ```
 
 directly.
+
+A Function may also accept explicit per-invocation argv. The public CLI form is:
+
+```powershell
+.\muse.cmd function run <function-id> <function-args...>
+```
+
+Arguments after `<function-id>` belong to the Function invocation. They are passed
+as strings to the Function Runtime, which appends them after the fixed
+`process.args` from `func/<function-id>/config/function.yaml`.
+
+For example:
+
+```powershell
+.\muse.cmd function run one-click-launch work
+```
+
+means that `work` is Function-owned input. Main may select or provide those
+arguments from explicit user intent, but MuseAI Function Runtime must not
+interpret their script-specific business semantics.
 
 Do not call `function.list` first when the Function ID is already explicit.
 

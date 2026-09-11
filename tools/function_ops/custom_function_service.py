@@ -12,6 +12,7 @@ Runtime:
 - Read one Function runtime configuration from:
       <project-root>/func/<function-id>/config/function.yaml
 - Expose deterministic list/get/run service operations.
+- Append explicit per-invocation runtime argv after configured process.args.
 - Start the configured process with shell=False.
 - Capture exit code, stdout, and stderr.
 - Report non-zero process exits and explicit timeouts upward.
@@ -1466,6 +1467,7 @@ def disable_function(
 def run_function(
     function_id: str,
     *,
+    runtime_args: list[str] | None = None,
     manifest_path: str | Path | None = None,
     func_root: str | Path | None = None,
     output_limit_bytes: int = DEFAULT_OUTPUT_LIMIT_BYTES,
@@ -1476,6 +1478,10 @@ def run_function(
     Success means the configured process was started and exited with code 0.
     A non-zero exit is surfaced as FunctionProcessError.
 
+    Runtime arguments are caller-provided argv strings for this invocation.
+    They are appended after the fixed `process.args` from function.yaml.
+    The Function Runtime does not interpret their script-specific semantics.
+
     Process lifecycle ownership:
     - stdout/stderr are drained with bounded in-memory retention;
     - Windows processes are created suspended and are resumed only after
@@ -1485,6 +1491,16 @@ def run_function(
       reap the owned process tree before propagating the outcome upward;
     - normal completion does not kill intentional background descendants.
     """
+    if runtime_args is None:
+        runtime_args = []
+
+    if not isinstance(runtime_args, list) or not all(
+        isinstance(item, str) for item in runtime_args
+    ):
+        raise FunctionConfigError(
+            "runtime_args must be a list of strings when provided."
+        )
+
     if (
         isinstance(output_limit_bytes, bool)
         or not isinstance(output_limit_bytes, int)
@@ -1512,7 +1528,7 @@ def run_function(
 
     runtime = function["_runtime"]
     command = runtime["command"]
-    argv = [command, *runtime["args"]]
+    argv = [command, *runtime["args"], *runtime_args]
     timeout_seconds = runtime["timeout_seconds"]
 
     if _is_path_like_command(command):

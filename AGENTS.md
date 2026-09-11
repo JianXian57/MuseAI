@@ -214,12 +214,16 @@ The public Function interface is:
 
 - `.\muse.cmd function list`
 - `.\muse.cmd function get <function-id>`
-- `.\muse.cmd function run <function-id>`
+- `.\muse.cmd function run <function-id> [<function-args...>]`
 - `.\muse.cmd function register <function-id> --name "..." --description "..."`
 - `.\muse.cmd function update <function-id> ...`
 - `.\muse.cmd function unregister <function-id>`
 - `.\muse.cmd function enable <function-id>`
 - `.\muse.cmd function disable <function-id>`
+
+For `function run`, arguments after `<function-id>` are per-invocation Function
+argv. Function Runtime appends them after the fixed `process.args` in
+`function.yaml` and does not interpret their business meaning.
 
 Custom Function discovery is user-driven, not filesystem-driven.
 
@@ -682,7 +686,7 @@ For Custom Function requests:
 1. read `.zcode/skills/custom-function/SKILL.md`;
 2. distinguish inspection/installation/registration/management/execution intent;
 3. preserve an explicitly provided Function ID;
-4. for an explicit execution request, use `.\muse.cmd function run <function-id>`;
+4. for an explicit execution request, use `.\muse.cmd function run <function-id> [<function-args...>]`; preserve explicit per-invocation Function arguments and pass them through without interpreting their Function-specific semantics;
 5. when the Function target is uncertain, use `function.list` and optionally `function.get` to resolve it;
 6. for registration, require the user-provided Function Package plus explicit ID / name / description;
 7. use `function.register` rather than editing `config/manifest.yaml` directly;

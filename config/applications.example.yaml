@@ -1,0 +1,14 @@
+schema_version: "1.0"
+
+applications:
+  edge:
+    type: browser
+    executable: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+
+  chrome:
+    type: browser
+    executable: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+
+  vscode:
+    type: application
+    executable: "C:\\Path\\To\\Code.exe"

@@ -160,6 +160,7 @@ def disable_function(
 def run_function(
     function_id: str,
     *,
+    runtime_args: list[str] | None = None,
     manifest_path: str | Path | None = None,
     func_root: str | Path | None = None,
     output_limit_bytes: int = 32 * 1024,
@@ -168,6 +169,7 @@ def run_function(
         "function.run",
         service_run_function,
         function_id=function_id,
+        runtime_args=runtime_args,
         manifest_path=manifest_path,
         func_root=func_root,
         output_limit_bytes=output_limit_bytes,

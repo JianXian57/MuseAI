@@ -4,3 +4,7 @@ functions:
     name: Example Function
     description: Reference Custom Function package for MuseAI users.
     enabled: true
+  one-click-launch:
+    name: One Click Launch
+    description: Launch a named user-defined group of browser windows, terminal tabs, folders, shells, and applications.
+    enabled: true

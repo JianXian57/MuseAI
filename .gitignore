@@ -5,8 +5,9 @@
 # venv
 /.venv/
 
-# Machine-local bootstrap config
+# Machine-local config
 /config/runtime.json
+/config/applications.yaml
 
 # User data
 /config/user.yaml
@@ -20,6 +21,10 @@
 !/func/.gitkeep
 !/func/example-function/
 !/func/example-function/**
+!/func/one-click-launch/
+!/func/one-click-launch/**
+/func/one-click-launch/config/groups/*.yaml
+!/func/one-click-launch/config/groups/example.yaml
 
 # Secretary
 /.env

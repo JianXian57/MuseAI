@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
+r"""
 MuseAI Custom Function CLI adapter.
 
 Public tree
 -----------
-python muse.py function list
-python muse.py function get <function-id>
-python muse.py function run <function-id>
+.\muse.cmd function list
+.\muse.cmd function get <function-id>
+.\muse.cmd function run <function-id> [<function-args...>]
 
-python muse.py function register <function-id> --name "..." --description "..."
-python muse.py function update <function-id> [--name "..."] [--description "..."]
-python muse.py function unregister <function-id>
-python muse.py function enable <function-id>
-python muse.py function disable <function-id>
+.\muse.cmd function register <function-id> --name "..." --description "..."
+.\muse.cmd function update <function-id> [--name "..."] [--description "..."]
+.\muse.cmd function unregister <function-id>
+.\muse.cmd function enable <function-id>
+.\muse.cmd function disable <function-id>
 
 Custom Function discovery is user-driven. Registration always targets the
 Function ID and semantic information explicitly supplied by the caller.
@@ -87,6 +87,7 @@ def run_function_run(args: argparse.Namespace) -> dict[str, Any]:
         "function.run",
         "run_function",
         function_id=args.function_id,
+        runtime_args=list(args.function_args),
     )
 
 
@@ -178,6 +179,15 @@ def register_function_cli(modules: Any) -> argparse.ArgumentParser:
         "function_id",
         metavar="<function-id>",
         help="Registered Custom Function ID.",
+    )
+    run_parser.add_argument(
+        "function_args",
+        nargs=argparse.REMAINDER,
+        metavar="<function-arg>",
+        help=(
+            "Optional per-invocation argv appended after function.yaml "
+            "process.args. All arguments after <function-id> belong to the Function."
+        ),
     )
     run_parser.set_defaults(
         handler=run_function_run,

@@ -77,7 +77,8 @@ MuseAI/
 │  ├─ common/
 │  │  ├─ __init__.py
 │  │  ├─ result.py
-│  │  └─ time_service.py
+│  │  ├─ time_service.py
+│  │  └─ applications_config.py
 │  │
 │  ├─ log_ops/
 │  │  ├─ log_tool.py
@@ -129,7 +130,9 @@ MuseAI/
 │
 ├─ config/
 │  ├─ user.yaml
-│  └─ manifest.yaml
+│  ├─ manifest.yaml
+│  ├─ runtime.example.json
+│  └─ applications.example.yaml
 │
 ├─ func/
 │  ├─ .gitkeep
@@ -141,6 +144,15 @@ MuseAI/
 │     │  └─ .gitkeep
 │     └─ script/
 │        └─ main.py
+│
+│  └─ one-click-launch/
+│     ├─ README.md
+│     ├─ config/
+│     │  ├─ function.yaml
+│     │  └─ groups/
+│     │     └─ example.yaml
+│     └─ script/
+│        └─ launch.py
 │
 ├─ data/
 │  ├─ tasks/
@@ -577,13 +589,29 @@ Custom Function 的定位是：
 ```powershell
 .\muse.cmd function list
 .\muse.cmd function get <function-id>
-.\muse.cmd function run <function-id>
+.\muse.cmd function run <function-id> [<function-args...>]
 
 .\muse.cmd function register <function-id> --name "..." --description "..."
 .\muse.cmd function update <function-id> --name "..." --description "..."
 .\muse.cmd function unregister <function-id>
 .\muse.cmd function enable <function-id>
 .\muse.cmd function disable <function-id>
+```
+
+`function run` supports per-invocation Function arguments:
+
+```powershell
+.\muse.cmd function run <function-id> <function-args...>
+```
+
+All argv after `<function-id>` is appended after the fixed `process.args` declared
+by that Function Package. MuseAI passes these values through as strings with
+`shell=False`; their business meaning belongs to the Function itself.
+
+Example:
+
+```powershell
+.\muse.cmd function run one-click-launch work
 ```
 
 ## Registry
@@ -603,6 +631,11 @@ functions:
   example-function:
     name: Example Function
     description: Reference Custom Function package for MuseAI users.
+    enabled: true
+
+  one-click-launch:
+    name: One Click Launch
+    description: Launch a named user-defined group.
     enabled: true
 ```
 
@@ -788,6 +821,16 @@ exit_code != 0
 
 stdout / stderr 持续排空，但每个流只保留有限前缀，避免无限内存增长。
 
+Function 的最终 argv 顺序为：
+
+```text
+process.command
+→ function.yaml process.args
+→ 本次 function.run 的 Function args
+```
+
+运行时参数只做字符串 argv 透传，不由 Function Runtime 解释。
+
 Function Runtime 不自动：
 
 - 诊断业务错误；
@@ -871,6 +914,45 @@ Custom Function V2 可以视为当前正式完成。
 
 ---
 
+## One Click Launch
+
+`one-click-launch` 是一个通过现有 Custom Function Runtime 运行的用户
+Custom Function Package。它按显式 group ID 启动一组本机工作环境：
+
+```powershell
+.\muse.cmd function run one-click-launch <group-id>
+```
+
+例如：
+
+```powershell
+.\muse.cmd function run one-click-launch work
+```
+
+启动组位于：
+
+```text
+func/one-click-launch/config/groups/<group-id>.yaml
+```
+
+一个启动组可以包含：
+
+- `browser`：一个浏览器窗口 + 多个标签页；
+- `terminal`：一个 Windows Terminal 窗口 + 多个 Shell 标签页；
+- `folder`：打开文件夹；
+- `exe`：启动指定应用；
+- `powershell`：启动 PowerShell 7；
+- `windows_powershell`：启动 Windows PowerShell 5.1；
+- `cmd`：启动 Command Prompt。
+
+多个 `browser` launch unit 会分别请求独立浏览器窗口，因此可以把不同网页集合分成不同窗口。浏览器可执行文件从机器本地 `config/applications.yaml` 读取。
+
+Function 会先完整校验 group YAML 结构，再按配置顺序快速 dispatch。单个 launch unit 失败不会阻止后续 unit；全部成功返回 `0`，存在单项失败返回 `1`。
+
+仓库只跟踪 `config/groups/example.yaml`。其他启动组默认属于用户本机配置，由 `.gitignore` 忽略。
+
+---
+
 # 配置与数据
 
 ## `config/`
@@ -880,7 +962,11 @@ Custom Function V2 可以视为当前正式完成。
 ```text
 config/
 ├─ user.yaml
-└─ manifest.yaml
+├─ manifest.yaml
+├─ runtime.json
+├─ runtime.example.json
+├─ applications.yaml
+└─ applications.example.yaml
 ```
 
 原则：
@@ -895,6 +981,21 @@ templates/ → Structure
 `user.yaml` 是用户配置，不应提交真实私人内容。
 
 `manifest.yaml` 是 MuseAI 管理的 Custom Function Registry。
+
+`runtime.json` 是机器本地 Python Runtime 选择，不进入 Git。
+
+`applications.yaml` 是机器本地外部应用绑定，不进入 Git。V1 使用：
+
+```yaml
+schema_version: "1.0"
+
+applications:
+  edge:
+    type: browser
+    executable: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+```
+
+应用 ID（如 `edge`、`chrome`）作为稳定引用；具体安装路径只保存在本机 `applications.yaml` 中。仓库中的 `applications.example.yaml` 仅提供格式示例。
 
 ---
 
@@ -942,9 +1043,12 @@ MuseAI 将源码与用户数据分离。
 
 - `/data/**` 默认忽略；
 - `/config/user.yaml` 忽略；
+- `/config/runtime.json` 忽略；
+- `/config/applications.yaml` 忽略；
 - `.env` 忽略；
 - `/func/**` 默认忽略；
 - `func/example-function/**` 精确放行；
+- `func/one-click-launch/**` 精确放行，但除 `example.yaml` 外的本机启动组继续忽略；
 - Git 写操作需要用户明确授权。
 
 普通运行不能自动：
@@ -1014,7 +1118,10 @@ Sub-Agent
 6. ZCode Daily Init Hook；
 7. Query / Task Query V1；
 8. Custom Function V1；
-9. Custom Function V2。
+9. Custom Function V2；
+10. Custom Function Runtime Args；
+11. Applications Config V1；
+12. One Click Launch V1。
 
 当前后续方向：
 

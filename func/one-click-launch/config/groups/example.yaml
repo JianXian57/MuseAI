@@ -1,0 +1,25 @@
+schema_version: "1.0"
+name: "Example Launch Group"
+
+launches:
+  - name: "Reference Pages"
+    type: browser
+    application: edge
+    tabs:
+      - "https://example.com/"
+      - "https://github.com/"
+
+  - name: "MuseAI Terminal"
+    type: terminal
+    tabs:
+      - name: "MuseAI"
+        shell: powershell
+        cwd: "."
+
+      - name: "Command Prompt"
+        shell: cmd
+        cwd: "."
+
+  - name: "MuseAI Folder"
+    type: folder
+    target: "."
